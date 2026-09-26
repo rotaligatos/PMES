@@ -470,6 +470,9 @@ function openAddJobMaterialSheet(jobId) {
         <option value="sqm">sqm</option>
         <option value="pcs">pcs</option>
         <option value="kg">kg</option>
+        <option value="lm">lm</option>
+        <option value="roll">roll</option>
+        <option value="set">set</option>
         <option value="other">other</option>
       </select>
     </div>

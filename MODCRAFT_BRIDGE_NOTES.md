@@ -319,3 +319,14 @@ be **escalated to the Head of Plant Operations**, whose decision is final.
   requires the explicit **`is_plant_head`** cap (NOT granted to Admins automatically, like KEYSTONE's
   other approver roles). Every decision in `adm_audit_log`. Whole chain tested, rolled back.
 - Defect records are kept per board and job, so defect rates by material/supplier can be reported later.
+
+## Update 2026-09-26 — first end-to-end test run (rolled back)
+A test Job Order built by Modcraft's own code (`_cutListToAnalysis` → `_joBuild`, 11 pieces, 3 boards,
+special cut, grooving, boring) was taken through gate → MRF → payment → release → warehouse issue →
+receipt → board inspection → JO check → approval → output on all 8 processes → `modcraft_jo_progress`,
+as the real people in each role, inside one rolled-back transaction. Everything worked; refusals held
+(staff cannot receive, no output before approval). One fault fixed: release mapped only
+sheet/sqm/pcs/kg, but the catalogue uses "pc" and "lm", so every real line arrived as "other".
+Now `pmes_norm_unit()` (pc→pcs, lm→lm, roll, set …); `pmes_job_materials.unit` allows lm/roll/set;
+an unrecognised unit is kept in the notes. Note: PMES users read MRFs only via `pmes_job_mrs()` —
+they have no direct access to `adm_material_requests`.
