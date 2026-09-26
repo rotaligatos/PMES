@@ -9,6 +9,7 @@ async function renderJobDetail(main) {
       Data.listJobMaterials(jobId), Data.getJobMaterialSummary(jobId), Data.listJoReviews(jobId).catch(() => []),
       Data.listStageOutputs(jobId).catch(() => []), Data.listMachines().catch(() => []),
     ]);
+    State.jobMRs = await Data.listJobMRs(jobId).catch(() => []);
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
     return;
@@ -49,6 +50,7 @@ async function renderJobDetail(main) {
     ` : ''}
 
     ${renderJoReviewCard(job, joReviews)}
+    ${renderMRCard(job, State.jobMRs || [])}
 
     <div class="card">
       <div class="flex-between">
@@ -335,6 +337,40 @@ async function confirmOutput(id, ok) {
 async function deleteOutput(id) {
   if (!confirm('Remove this entry?')) return;
   try { await Data.outputDelete(id); toast('Removed.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---- MRF (material request) — released with the JO from KEYSTONE ---------------------------
+   KEYSTONE builds it from the quotation's materials (Modcraft BOM / cutting list / outsource) and
+   authorizes it at release; the warehouse confirms "processed" there; production confirms here what
+   actually arrived. Up to what was processed; partial is fine. A receipt also counts against the
+   job's materials above, so the JO check can see it. */
+function renderMRCard(job, mrs) {
+  if (!mrs.length) return `<div class="card"><h2>Material requests (MRF)</h2><p class="small">No MRF for this job yet — KEYSTONE issues it with the Job Order at release.</p></div>`;
+  const canReceive = pmesCan('staff');
+  const pill = (st) => { const c = { authorized: 'blue', partially_issued: 'amber', issued: 'amber', partially_received: 'amber', received: 'green', closed: 'gray', cancelled: 'red' }[st] || 'gray';
+    const t = { authorized: 'Waiting for the warehouse', partially_issued: 'Warehouse partly processed', issued: 'Processed — confirm receipt', partially_received: 'Partly received', received: 'Received' }[st] || st;
+    return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
+  return `<div class="card"><h2>Material requests (MRF)</h2>${mrs.map((m) => {
+    const open = canReceive && ['partially_issued', 'issued', 'partially_received'].includes(m.status);
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:10px;">
+      <div class="flex-between"><strong class="mono">${escapeHtml(m.mr_no || '')}</strong> <span class="small">${m.stream === 'purchase' ? 'purchase (outsource / made-to-order)' : 'warehouse'}</span> ${pill(m.status)}</div>
+      <div class="small" style="margin-top:4px;">${m.processed_by ? 'Processed by ' + escapeHtml(m.processed_by) + ', ' + fmtDate(m.processed_at) : 'Not yet processed by the warehouse'}${m.received_by ? ' · Received by ' + escapeHtml(m.received_by) + ', ' + fmtDate(m.received_at) : ''}</div>
+      <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Item</th><th>Unit</th><th>Requested</th><th>Processed</th><th>Received</th></tr></thead><tbody>
+      ${(m.lines || []).map((l) => `<tr><td>${escapeHtml(l.item)}${l.area ? '<br><span class="small">' + escapeHtml(l.area) + '</span>' : ''}</td><td>${escapeHtml(l.unit || '')}</td><td>${l.qty}</td><td>${l.issued}</td>
+        <td>${open && l.issued > 0 ? `<input type="number" min="0" max="${l.issued}" step="any" class="mrRecv" data-mr="${m.id}" data-line="${l.id}" value="${l.received || ''}" placeholder="0" style="width:80px;">` : l.received}</td></tr>`).join('')}
+      </tbody></table>
+      ${open ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn outline sm" onclick="document.querySelectorAll('.mrRecv[data-mr=&quot;${m.id}&quot;]').forEach((i)=>{i.value=i.max;})">All processed arrived</button>
+        <input type="text" id="mrNote_${m.id}" placeholder="Note (damage, shortage)" style="flex:1;min-width:160px;">
+        <button class="btn primary sm" onclick="submitMRReceive('${m.id}')">Confirm received</button></div>` : ''}
+    </div>`; }).join('')}</div>`;
+}
+async function submitMRReceive(mrId) {
+  const lines = [...document.querySelectorAll('.mrRecv[data-mr="' + mrId + '"]')].map((i) => ({ id: i.dataset.line, qty: i.value === '' ? 0 : Number(i.value) }));
+  if (lines.some((l) => !(l.qty >= 0))) return toast('Enter the quantity received for each line.', 'error');
+  try { const r = await Data.receiveMR(mrId, lines, (document.getElementById('mrNote_' + mrId) || {}).value);
+    toast('Receipt confirmed — ' + String(r.status).replace(/_/g, ' ') + '.', 'success'); render(); }
   catch (e) { toast(e.message, 'error'); }
 }
 

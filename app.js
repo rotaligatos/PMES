@@ -348,6 +348,15 @@ const Data = {
     const { data, error } = await sb.rpc('pmes_capacity_mirror_modcraft', { p_company: company, p_force: !!force });
     if (error) throw error; return data;
   },
+  // MRF from KEYSTONE (warehouse processes it there; production confirms receipt here).
+  async listJobMRs(jobId) {
+    const { data, error } = await sb.rpc('pmes_job_mrs', { p_job: jobId });
+    if (error) throw error; return data || [];
+  },
+  async receiveMR(mrId, lines, note) {
+    const { data, error } = await sb.rpc('pmes_mr_receive', { p_mr: mrId, p_lines: lines, p_note: note || null });
+    if (error) throw error; return data;
+  },
   async listStageTypes() {
     const { data, error } = await sb.from(T('stage_types')).select('*').eq('active', true).order('sort_order');
     if (error) throw error;

@@ -249,3 +249,23 @@ Station 1 (5), Manual Edgebander 1 (2), Others (29). No app code change was need
 - **Modcraft's Job Orders panel** calls `modcraft_jo_progress(serial)`: PMES job code/status, the
   review gate state, a return note when production sent it back, and per-process confirmed/planned.
   Read-only; any Modcraft user whose company may see the quotation.
+
+## Update 2026-09-26 — MRF confirmations (warehouse processed → production received)
+
+The MRF already existed in KEYSTONE: `adm_build_material_requests` builds it on a gate from
+`adm_material_summary` ← `adm_extract_materials(serial)`, which reads the **Modcraft quotation's own
+scope** (Final Quotation areas once it reached Stage 2): BOM items' materials/hardware, carcass
+templates, cutting-list materials, outsource rows — client-supplied items excluded. Two streams:
+warehouse (stock) and purchase (outsource + made-to-order). Authorized at release. New:
+- **Warehouse "processed"** — KEYSTONE → Material Requests → Lines: per-line processed qty +
+  Confirm processed (`adm_mr_process`, new cap **`can_issue`** "Warehouse issue", set in the Command
+  Center; Admin/Director have it). Status → partially_issued / issued.
+- **Production "received"** — PMES job page → "Material requests (MRF)": per-line received qty (up
+  to processed) + Confirm received (`pmes_mr_receive`, staff+). Status → partially_received /
+  received. Each received delta also writes a `pmes_material_receipts` row on the matching job
+  material (`pmes_job_materials.mr_line_id`, now set by `adm_release_gate`), so material readiness
+  and the JO check see it. PMES reads MRFs via `pmes_job_mrs(job)` (PMES users aren't KEYSTONE users).
+- Both steps append to `adm_audit_log` (`mr.process`, `mr.receive`). Over-processing, over-receiving
+  and processing without the cap are refused in the database (tested, rolled back).
+- MRFs released BEFORE today have no `mr_line_id` link: their receipts update the MRF but not the
+  job-material readiness bars. No MRF has been released yet, so nothing is affected.
