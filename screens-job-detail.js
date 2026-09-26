@@ -2,11 +2,11 @@
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
-  let job, stages, components, materials, materialSummary;
+  let job, stages, components, materials, materialSummary, joReviews = [];
   try {
-    [job, stages, components, materials, materialSummary] = await Promise.all([
+    [job, stages, components, materials, materialSummary, joReviews] = await Promise.all([
       Data.getJob(jobId), Data.listJobStages(jobId), Data.listComponents(jobId),
-      Data.listJobMaterials(jobId), Data.getJobMaterialSummary(jobId),
+      Data.listJobMaterials(jobId), Data.getJobMaterialSummary(jobId), Data.listJoReviews(jobId).catch(() => []),
     ]);
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
@@ -31,7 +31,7 @@ async function renderJobDetail(main) {
   main.innerHTML = `
     <div class="flex-between" style="margin-bottom:10px;">
       <button class="btn outline sm" onclick="goToScreen('jobs')">← All jobs</button>
-      ${badgeForJobStatus(job.status)}
+      <span>${badgeForJoReview(job)} ${badgeForJobStatus(job.status)}</span>
     </div>
 
     <h1 class="page-title" style="display:flex;align-items:center;gap:10px;">
@@ -46,6 +46,8 @@ async function renderJobDetail(main) {
         to that status once the real feed exists (see MODCRAFT_BRIDGE_NOTES.md).
       </div>
     ` : ''}
+
+    ${renderJoReviewCard(job, joReviews)}
 
     <div class="card">
       <div class="flex-between">
@@ -147,8 +149,8 @@ async function renderJobDetail(main) {
               </div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-              ${components.length ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
-              ${s.status !== 'complete' ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
+              ${components.length && joApproved(job) ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
+              ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
             </div>
           </div>`;
         }).join('')}
@@ -179,6 +181,74 @@ async function renderJobDetail(main) {
   `;
 
   if (components.length) renderPackingBlock(job, components);
+}
+
+/* ---- Job Order review gate (Piece 1) ------------------------------------------------------
+   received -> (staff: details ok + materials ok) -> checked -> (supervisor) approved
+   A supervisor can return it to staff, or to Modcraft (messages the quotation's preparer).
+   Nothing reaches the line before 'approved': the database refuses stage/scan progress, and the
+   Process JO print and stage Update buttons stay hidden. */
+function renderJoReviewCard(job, reviews) {
+  const st = job.jo_review_status || 'received';
+  const canCheck = pmesCan('staff') && st !== 'approved';
+  const canApprove = pmesCan('supervisor');
+  const who = (e, n) => escapeHtml(n || e || '');
+  const state = {
+    received: '<span class="badge amber">Received — waiting for staff check</span>',
+    checked: '<span class="badge blue">Checked — waiting for supervisor approval</span>',
+    approved: '<span class="badge green">Approved for the line</span>',
+    returned: '<span class="badge red">Returned to ' + (job.jo_returned_to === 'modcraft' ? 'Modcraft' : 'staff') + '</span>',
+  }[st];
+  const hist = (reviews || []).map((r) => {
+    const what = { checked: 'Checked ✓', not_ok: 'Checked — not OK', approved: 'Approved', returned_staff: 'Returned to staff', returned_modcraft: 'Returned to Modcraft' }[r.action] || r.action;
+    const flags = r.action === 'checked' || r.action === 'not_ok' ? ' (details ' + (r.details_ok ? 'ok' : 'NOT ok') + ', materials ' + (r.materials_ok ? 'ok' : 'NOT ok') + ')' : '';
+    return '<div class="small" style="padding:4px 0;border-bottom:1px solid var(--border);"><strong>' + what + '</strong>' + flags + ' — ' + who(r.by_email, r.by_name) + ', ' + fmtDate(r.at) + (r.note ? '<br>' + escapeHtml(r.note) : '') + '</div>';
+  }).join('');
+  return `
+    <div class="card" style="border-left:4px solid ${st === 'approved' ? 'var(--green)' : st === 'returned' ? 'var(--red)' : 'var(--amber)'};">
+      <div class="flex-between"><h2 class="mb-0">Job Order review</h2>${state}</div>
+      ${st === 'returned' && job.jo_return_note ? '<div class="callout blocked" style="margin-top:8px;"><strong>Returned:</strong> ' + escapeHtml(job.jo_return_note) + '</div>' : ''}
+      ${st !== 'approved' ? '<div class="callout info" style="margin-top:8px;">Nothing goes to the line until a supervisor approves this Job Order. Staff: check the details against the cutting list and confirm the materials are available.</div>' : ''}
+      ${canCheck ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+          <label class="field-label">Staff check</label>
+          <label style="display:block;margin:6px 0;"><input type="checkbox" id="joDetailsOk" ${job.jo_details_ok ? 'checked' : ''}> All details are correct (parts, sizes, materials, edges match the cutting list)</label>
+          <label style="display:block;margin:6px 0;"><input type="checkbox" id="joMaterialsOk" ${job.jo_materials_ok ? 'checked' : ''}> All materials are available</label>
+          <input type="text" id="joCheckNote" placeholder="Note (what is missing or wrong, if anything)" style="margin-top:6px;" />
+          <button class="btn primary sm" style="margin-top:8px;" onclick="submitJoCheck('${job.id}')">Save check</button>
+        </div>` : ''}
+      ${canApprove && st !== 'approved' ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+          <label class="field-label">Supervisor</label>
+          <input type="text" id="joSupNote" placeholder="Note (required when returning)" />
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn primary sm" ${st === 'checked' ? '' : 'disabled title="Staff must check it first"'} onclick="submitJoApprove('${job.id}')">Approve for the line</button>
+            <button class="btn outline sm" onclick="submitJoReturn('${job.id}','staff')">Return to staff</button>
+            <button class="btn outline sm" onclick="submitJoReturn('${job.id}','modcraft')">Return to Modcraft</button>
+          </div>
+        </div>` : ''}
+      ${hist ? '<div style="margin-top:12px;"><div class="field-label">History</div>' + hist + '</div>' : ''}
+    </div>`;
+}
+async function submitJoCheck(jobId) {
+  const d = document.getElementById('joDetailsOk').checked, m = document.getElementById('joMaterialsOk').checked;
+  const note = document.getElementById('joCheckNote').value.trim();
+  if (!(d && m) && !note) return toast('Say what is wrong or missing.', 'error');
+  try { const r = await Data.joCheck(jobId, d, m, note); toast(r && r.status === 'checked' ? 'Checked — waiting for the supervisor.' : 'Check saved; the Job Order is not ready yet.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function submitJoApprove(jobId) {
+  const note = document.getElementById('joSupNote').value.trim();
+  if (!confirm('Approve this Job Order for the line?')) return;
+  try { await Data.joApprove(jobId, note); toast('Approved — it can now be printed and scheduled.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function submitJoReturn(jobId, to) {
+  const note = document.getElementById('joSupNote').value.trim();
+  if (!note) return toast('Write the reason in the note first.', 'error');
+  if (!confirm('Return this Job Order to ' + (to === 'modcraft' ? 'the Modcraft user who prepared the quotation' : 'staff') + '?')) return;
+  try { const r = await Data.joReturn(jobId, to, note); toast(to === 'modcraft' ? 'Returned — ' + ((r && r.notified) || 0) + ' person(s) messaged in Modcraft.' : 'Returned to staff.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
 }
 
 function renderComponentsTable(components) {

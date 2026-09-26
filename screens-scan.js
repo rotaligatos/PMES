@@ -62,6 +62,12 @@ async function lookupScannedComponent() {
   }
 
   const job = await Data.getJob(component.job_id);
+  if (!joApproved(job)) {
+    resultBox.innerHTML = `<div class="card"><h2 class="mono">${escapeHtml(component.full_barcode_id)}</h2>
+      <p class="small">Job ${escapeHtml(job.job_code)} ${badgeForJoReview(job)}</p>
+      <div class="callout blocked">This Job Order has not been approved for the line yet. Nothing can be logged against it until staff have checked it and a supervisor has approved it.</div></div>`;
+    return;
+  }
   const seq = stageSequenceFor(component, job);
   const stageIdx = seq ? seq.indexOf(component.current_stage_code) : -1;
   const nextStage = seq ? (stageIdx === -1 ? seq[0] : seq[stageIdx + 1]) : null;

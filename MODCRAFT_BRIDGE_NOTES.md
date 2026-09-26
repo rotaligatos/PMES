@@ -149,3 +149,30 @@ auth before adding anything sensitive).
   for DRL; HPL boards for HPL/CURE/MHPL; BOM summary; attached files listed from the quotation's
   Storage folder (source file / customer cutting list / elevation, shop drawing, client order
   attachments — quotation printouts are deliberately left out), linked with 7-day signed URLs.
+
+## Update 2026-09-26 (Piece 1) — the Job Order review gate
+
+A released JO is **received**, not runnable. Rommel's rule (MSSI first; per-company later):
+`received` → staff ticks *details correct* + *materials available* → `checked` → supervisor
+`approved` → only then the Process JOs print and the line can log work. A supervisor can return it
+`returned` to staff (re-check) or to Modcraft (messages the quotation's preparer + Modcraft Admins,
+and writes the note onto `job_orders.status_note`).
+
+- Columns on `pmes_production_jobs`: `jo_review_status`, `jo_details_ok`, `jo_materials_ok`,
+  `jo_checked_by/at`, `jo_approved_by/at`, `jo_returned_to`, `jo_return_note`.
+- History: `pmes_jo_reviews` (append-only, read by any PMES user).
+- RPCs (security definer, role-checked): `pmes_jo_check` (staff, rank ≥ 5), `pmes_jo_approve`
+  (supervisor, rank ≥ 20, requires `checked`), `pmes_jo_return` (supervisor; note required).
+- **The gate is a trigger** (`pmes_jo_gate_trg`) on `pmes_job_stages` / `pmes_components`
+  (progress changes only — notes pass) and `pmes_component_stage_events`. The app also hides
+  Update / Process JO buttons and refuses a scan on an unapproved JO, but the trigger is the rule.
+- Staff is a real role now (rank 5, below operator): reads everything, and its ONLY write is the
+  JO check (through the RPC).
+- Existing test jobs: the one already in packing was marked approved ('setup'); the other waits.
+
+**Coming next (agreed):** Piece 2 actual output (staff keys it from the returned sheets, supervisor
+confirms); Piece 3 MSSI machine capacity — its home is PMES, mirrored from Modcraft to start —
+then scheduling of approved JOs; Piece 4 status/progress back to Modcraft (later the CRM).
+Also on the list: **the MRF released with the JO from KEYSTONE** (`adm_material_requests` is
+already authorized at release) needs *processed by the warehouse* → *received by production*
+confirmations; and barcode scanning stays the long-term way work is logged.

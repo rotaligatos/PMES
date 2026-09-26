@@ -26,11 +26,13 @@ async function renderJobsList(main) {
   const stats = document.getElementById('jobsStats');
   const inProd = jobs.filter((j) => j.status === 'in_production').length;
   const waiting = jobs.filter((j) => j.payment_status === 'not_yet_paid').length;
+  const toReview = jobs.filter((j) => j.jo_review_status && j.jo_review_status !== 'approved').length;
   stats.innerHTML = `
     <div class="stat-box"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
     <div class="stat-box"><div class="num">${inProd}</div><div class="lbl">In production</div></div>
     <div class="stat-box"><div class="num">${waiting}</div><div class="lbl">Payment pending</div></div>
     <div class="stat-box"><div class="num">${jobs.filter(j=>j.status==='handed_off').length}</div><div class="lbl">Handed off</div></div>
+    <div class="stat-box"><div class="num">${toReview}</div><div class="lbl">JO to review</div></div>
   `;
 
   function paint(list) {
@@ -48,6 +50,7 @@ async function renderJobsList(main) {
         <div class="right">
           ${!j.job_active ? '<span class="badge gray">Inactive</span>' : ''}
           ${badgeForDest(j.destination_company)}
+          ${badgeForJoReview(j)}
           ${badgeForJobStatus(j.status)}
         </div>
       </div>

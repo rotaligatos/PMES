@@ -190,6 +190,7 @@ async function printProcessJO(jobId, stageCode) {
   try {
     [job, components] = await Promise.all([Data.getJob(jobId), Data.listComponents(jobId)]);
   } catch (e) { return toast('Could not load the job: ' + e.message, 'error'); }
+  if (!joApproved(job)) return toast('This Job Order is not approved for the line yet — nothing to hand to the operators.', 'error');
   const w = window.open('', '_blank');
   if (!w) return toast('Pop-up blocked — allow pop-ups to print.', 'error');
   w.document.write('<p style="font-family:Arial">Preparing the process JO…</p>');
