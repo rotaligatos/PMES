@@ -33,7 +33,7 @@ async function renderCapacitySheet(el) {
 
   let rows = [], machines = [];
   try {
-    [rows, machines] = await Promise.all([Data.listServiceCapacityMap(), Data.listMachines()]);
+    [rows, machines] = await Promise.all([Data.listServiceCapacityMap(schedCompany()), Data.listMachines()]);
     IEState.machines = machines; IEState.rows = rows;
   } catch (e) {
     el.innerHTML = `<div class="empty"><p>Could not load capacity data.</p></div>`;
@@ -60,7 +60,7 @@ async function renderCapacitySheet(el) {
   const machineBoundCount = rows.filter((r) => r.modcraft_machine_type).length;
 
   el.innerHTML = `
-    <p class="page-sub">Machine, services, and capacity in one sheet — the source of truth for production capability.</p>
+    <p class="page-sub">Machine, services, and capacity in one sheet for <strong>${schedCompany()}</strong> — the source of truth for production capability. Modcraft reads these figures; they are no longer set there.${rows.some((r) => r.source) ? '' : ' <strong>Nothing set for this company yet</strong> — Seed from Modcraft, or type the figures in.'}</p>
 
     <div class="stat-grid">
       <div class="stat-box"><div class="num">${rows.length}</div><div class="lbl">Total services</div></div>
@@ -71,13 +71,14 @@ async function renderCapacitySheet(el) {
 
     <div class="btn-row" style="margin-bottom:14px;">
       <button class="btn secondary sm" onclick="openAddMachineSheet()">+ Add machine</button>
+      ${pmesCan('manager') ? `<button class="btn outline sm" onclick="seedServiceCapacity('${schedCompany()}')" title="Copy Modcraft's Services capacity in as the starting point. Rows edited here are kept.">Seed from Modcraft</button>` : ''}
       <button class="btn outline sm" onclick="goToLineBalancing()">Line balancing tools →</button>
     </div>
 
     <div class="sheet-scroll">
       <table class="sheet-table">
         <thead>
-          <tr><th style="width:170px;">Machine</th><th>Services</th><th style="width:100px;">Capacity</th><th style="width:80px;">UOM</th><th style="width:160px;">Remarks</th><th style="width:150px;">Move to</th></tr>
+          <tr><th style="width:170px;">Machine</th><th>Services</th><th style="width:70px;">Teams</th><th style="width:70px;">Shifts</th><th style="width:100px;">Output/shift</th><th style="width:90px;">Daily</th><th style="width:60px;">UOM</th><th style="width:150px;">Remarks</th><th style="width:150px;">Move to</th></tr>
         </thead>
         <tbody id="sheetBody"></tbody>
       </table>
@@ -143,19 +144,17 @@ async function renderCapacitySheet(el) {
 }
 
 function renderServiceCells(r, machineId) {
+  const ro = !pmesCan('manager') ? 'disabled' : '';
+  const nm = escapeHtml(r.service_name).replace(/'/g, '&#39;');
+  const cell = (f, v, step) => `<td class="num-cell"><input type="number" class="cell-input" ${ro} value="${v == null ? '' : v}" min="0" step="${step}" placeholder="—" onchange="updateCapacityCell('${nm}', '${f}', this.value)" /></td>`;
   return `
-    <td class="svc-cell">${escapeHtml(r.service_name)}</td>
-    <td class="num-cell">
-      <input type="number" class="cell-input" value="${r.display_capacity != null ? r.display_capacity : ''}"
-        placeholder="—" onchange="updateCapacityCell(${r.price_service_id}, '${machineId || ''}', 'capacity', this.value)" />
-    </td>
+    <td class="svc-cell">${escapeHtml(r.service_name)}${r.source ? '' : ' <span class="badge gray" title="No capacity set for this company">not set</span>'}</td>
+    ${cell('teams', r.teams, '0.5')}${cell('shifts', r.shifts_per_day, '0.5')}${cell('output', r.output_per_shift, '0.01')}
+    <td class="num-cell"><strong>${r.daily_capacity != null ? Number(r.daily_capacity).toFixed(2) : '—'}</strong></td>
+    <td>${escapeHtml(r.unit || '')}</td>
     <td>
-      <input type="text" class="cell-input text-left" value="${escapeHtml(r.display_uom || '')}"
-        placeholder="unit" onchange="updateCapacityCell(${r.price_service_id}, '${machineId || ''}', 'uom', this.value)" />
-    </td>
-    <td>
-      <input type="text" class="cell-input text-left" value="${escapeHtml(r.remarks || '')}"
-        placeholder="—" onchange="updateCapacityCell(${r.price_service_id}, '${machineId || ''}', 'remarks', this.value)" />
+      <input type="text" class="cell-input text-left" ${ro} value="${escapeHtml(r.remarks || '')}"
+        placeholder="—" onchange="updateCapacityCell('${nm}', 'remarks', this.value)" />
     </td>
     <td>
       <select class="cell-input text-left" onchange="moveServiceToMachine(${r.price_service_id}, this.value)" title="Group this service under a machine">
@@ -192,28 +191,24 @@ async function renameMachine(machineId, newName) {
   }
 }
 
-async function updateCapacityCell(priceServiceId, machineId, field, value) {
+// Capacity is written to pmes_service_capacity for the company on screen — the home of capacity.
+async function updateCapacityCell(serviceName, field, value) {
   try {
-    if (!machineId) {
-      // no assignment exists yet for this service (unassigned or labor-only) — need to
-      // create the assignment row first before it can hold capacity/uom/remarks
-      if (!value) return;
-      toast('Assign a machine first, or this is a labor-only service — use "Set crew capacity" from the Services view.', 'error');
-      return;
-    }
     const patch = {};
-    if (field === 'capacity') patch.capacity_override = value === '' ? null : parseFloat(value);
-    if (field === 'uom') patch.uom_override = value || null;
-    if (field === 'remarks') patch.remarks = value || null;
-
-    const { error } = await sb.from(T('service_machine_assignments'))
-      .update(patch).eq('price_service_id', priceServiceId).eq('machine_id', machineId);
-    if (error) throw error;
+    if (field === 'remarks') patch.remarks = value || '';
+    else patch[field] = value === '' ? null : parseFloat(value);
+    await Data.setServiceCapacity(schedCompany(), serviceName, patch);
     toast('Saved.', 'success');
+    if (field !== 'remarks') render();   // the Daily column is computed in the database
   } catch (e) {
     console.error(e);
     toast('Could not save: ' + e.message, 'error');
   }
+}
+async function seedServiceCapacity(co) {
+  if (!confirm('Copy Modcraft\'s Services capacity into ' + co + '? Rows edited here are kept.')) return;
+  try { const n = await Data.seedServiceCapacity(co, false); toast('Seeded ' + n + ' service(s) for ' + co + '.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
 }
 
 function openMachineDetail(machineId) {

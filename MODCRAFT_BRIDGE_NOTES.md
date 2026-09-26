@@ -231,3 +231,21 @@ machine grouping. Now (migration `pmes_services_mirror_modcraft_capacity`):
   Verified: changing a service's output in CONFIG updates `price_services` in the same transaction.
 Result today: Panel Saw 1 (11 services), Edgebander A (10), Boring Machine 1 (9), Manual Lamination
 Station 1 (5), Manual Edgebander 1 (2), Others (29). No app code change was needed.
+
+## Update 2026-09-26 (Piece 4) — PMES owns capacity; Modcraft reads it + sees production progress
+
+- **`pmes_service_capacity`** (company × service NAME): teams, shifts/day, output/shift → daily, type,
+  Modcraft's machine label, remarks, source. Keyed by name so a Price DB rewrite cannot lose it.
+  Seeded for MSSI from Modcraft's CONFIG (90 services). Edit: IE sheet (manager+;
+  `pmes_service_capacity_set`), "Seed from Modcraft" for another company (`pmes_service_capacity_seed`,
+  keeps PMES-edited rows). The sheet reads `pmes_service_capacity_sheet(company)` — company from the
+  signed-in user, switchable by managers (shared with the Schedule/Process-capacity selector).
+- **The Modcraft → PMES mirror triggers are DROPPED.** Modcraft's Save settings no longer touches
+  PMES capacity (verified). `pmes_sync_services_from_modcraft()` still exists as a manual tool only.
+- **Modcraft reads** `modcraft_service_capacity(company)` after its Price DB loads
+  (`supaLoadPmesCapacity`, flag `CAPACITY_FROM_PMES`) and shows the capacity fields read-only in
+  Settings → Services. Falls back to its own CONFIG copy when not connected. Pricing/cost breakdown
+  use the signed-in user's company; a per-quotation company read is a later refinement.
+- **Modcraft's Job Orders panel** calls `modcraft_jo_progress(serial)`: PMES job code/status, the
+  review gate state, a return note when production sent it back, and per-process confirmed/planned.
+  Read-only; any Modcraft user whose company may see the quotation.

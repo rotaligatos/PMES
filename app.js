@@ -196,10 +196,22 @@ const Data = {
   },
 
   // ---- ModCraft price_services reference (real, existing service catalog + capacity) ----
-  async listServiceCapacityMap() {
-    const { data, error } = await sb.from('pmes_service_capacity_map').select('*').order('service_name');
+  // Piece 4: service capacity lives in PMES per company (pmes_service_capacity); Modcraft reads it.
+  async listServiceCapacityMap(company) {
+    const { data, error } = await sb.rpc('pmes_service_capacity_sheet', { p_company: company });
     if (error) throw error;
-    return data;
+    return (data || []).map((r) => Object.assign(r, { modcraft_machine_type: r.machine_type, display_uom: r.unit, display_capacity: r.daily_capacity }));
+  },
+  async setServiceCapacity(company, name, patch) {
+    const { error } = await sb.rpc('pmes_service_capacity_set', { p_company: company, p_name: name,
+      p_teams: patch.teams === undefined ? null : patch.teams, p_shifts: patch.shifts === undefined ? null : patch.shifts,
+      p_output: patch.output === undefined ? null : patch.output, p_svc_type: patch.svc_type || null,
+      p_machine_type: patch.machine_type === undefined ? null : patch.machine_type, p_remarks: patch.remarks === undefined ? null : patch.remarks });
+    if (error) throw error;
+  },
+  async seedServiceCapacity(company, force) {
+    const { data, error } = await sb.rpc('pmes_service_capacity_seed', { p_company: company, p_force: !!force });
+    if (error) throw error; return data;
   },
   async listLinkedServices(operationCode) {
     const { data, error } = await sb.from(T('operation_service_links')).select('*, price_services(*)').eq('operation_code', operationCode);
