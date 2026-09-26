@@ -347,3 +347,6 @@ reason (`pmes_delegate_create`, `pmes_delegate_revoke`). `pmes_acting_for()` / `
 approval, the manager step on incomplete materials, manager discretion) and then records
 "On behalf of <manager> (delegated)" + `jo_approved_on_behalf_of`. A delegation from someone no
 longer an active manager stops counting. Setup → Approval delegation. Tested by impersonation, rolled back.
+
+## Update 2026-09-27 — Dashboard is the home screen; RTmo logo
+`pmes_dashboard(company)` (one call): counts of JOs to check / to approve / to manager / returned, materials to receive, output to confirm, board requests, in production, handed off (30 days), plus every open job with review + material status and progress (confirmed vs planned). Tiles that are the signed-in person's to act on are marked. Plant filter defaults to the user's company (`pmes_me().company`). Operators still open on Scan. RTmo logo top right.

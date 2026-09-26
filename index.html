@@ -435,6 +435,7 @@ textarea{min-height:80px;resize:vertical;}
 .takt-line{
   position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--amber);
 }
+.rtmo-logo{height:44px;width:auto;background:#fff;border-radius:7px;padding:2px 6px;margin-right:10px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -446,6 +447,7 @@ textarea{min-height:80px;resize:vertical;}
       <span class="title" id="screenTitle">Jobs</span>
     </div>
     <div class="conn">
+      <img src="rtmo-logo.png" alt="RTmo Digital Solutions" class="rtmo-logo" title="RTmo Digital Solutions">
       <span class="dot" id="connDot"></span>
       <span id="connLabel">online</span>
     </div>
@@ -456,7 +458,10 @@ textarea{min-height:80px;resize:vertical;}
   </main>
 
   <nav class="tabbar">
-    <button class="tab-btn active" data-screen="jobs">
+    <button class="tab-btn active" data-screen="dashboard">
+      <span class="ic">📊</span><span>Dashboard</span>
+    </button>
+    <button class="tab-btn" data-screen="jobs">
       <span class="ic">📋</span><span>Jobs</span>
     </button>
     <button class="tab-btn" data-screen="intake">
@@ -491,6 +496,7 @@ textarea{min-height:80px;resize:vertical;}
 <script src="config.js"></script>
 <script src="machine-illustrations.js"></script>
 <script src="app.js"></script>
+<script src="screens-dashboard.js"></script>
 <script src="screens-jobs.js"></script>
 <script src="screens-job-detail.js"></script>
 <script src="screens-scan.js"></script>

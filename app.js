@@ -426,7 +426,7 @@ const Data = {
 /* --------------------------- 2. App state --------------------------- */
 
 const State = {
-  screen: 'jobs',
+  screen: 'dashboard',
   routeMappings: [],
   stageTypes: [],
   areas: [],
@@ -490,6 +490,10 @@ async function render() {
   main.classList.remove('no-pad');
 
   switch (State.screen) {
+    case 'dashboard':
+      title.textContent = 'Dashboard';
+      await renderDashboard(main);
+      break;
     case 'jobs':
       title.textContent = 'Jobs';
       await renderJobsList(main);
