@@ -176,3 +176,17 @@ then scheduling of approved JOs; Piece 4 status/progress back to Modcraft (later
 Also on the list: **the MRF released with the JO from KEYSTONE** (`adm_material_requests` is
 already authorized at release) needs *processed by the warehouse* → *received by production*
 confirmations; and barcode scanning stays the long-term way work is logged.
+
+## Update 2026-09-26 (Piece 2) — actual output
+
+Staff keys what the returned process sheets say was done — per process, per day, pieces, hours,
+operator, machine, notes — and a supervisor confirms (or rejects with a note). Only on an approved
+JO. Table `pmes_stage_outputs` (read by any PMES user; writes only through RPCs `pmes_output_enter`
+staff ≥ 5 · `pmes_output_delete` own unconfirmed entry or supervisor · `pmes_output_confirm`
+supervisor ≥ 20). Confirmed pieces drive the stage: `pmes_stage_sync_from_output` sets the stage
+in progress at the first confirmed piece and complete when confirmed ≥ planned, where planned =
+`pmes_stage_planned(job, stage)` = pieces routed through that stage (own route, else the job's route
+mapping — the same rule as the app's `componentsForStage`). Never demotes a stage. First confirmed
+output also moves a `material_wait` job to `in_production`. Job page: "Actual output" card with the
+entry form, per-process progress bars, and the entry list with Confirm / Reject / Remove; each stage
+row shows actual / planned. Nothing here touches barcode scanning — scans stay the long-term way.

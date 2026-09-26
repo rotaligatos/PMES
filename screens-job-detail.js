@@ -2,11 +2,12 @@
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
-  let job, stages, components, materials, materialSummary, joReviews = [];
+  let job, stages, components, materials, materialSummary, joReviews = [], outputs = [], machines = [];
   try {
-    [job, stages, components, materials, materialSummary, joReviews] = await Promise.all([
+    [job, stages, components, materials, materialSummary, joReviews, outputs, machines] = await Promise.all([
       Data.getJob(jobId), Data.listJobStages(jobId), Data.listComponents(jobId),
       Data.listJobMaterials(jobId), Data.getJobMaterialSummary(jobId), Data.listJoReviews(jobId).catch(() => []),
+      Data.listStageOutputs(jobId).catch(() => []), Data.listMachines().catch(() => []),
     ]);
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
@@ -146,6 +147,7 @@ async function renderJobDetail(main) {
                 ${badgeForStageStatus(s.status)}
                 ${s.operator ? ' · ' + escapeHtml(s.operator) : ''}
                 ${s.delay_flag ? ' · ⚠ ' + escapeHtml(s.delay_reason || 'delayed') : ''}
+                ${_outputLine(s, components, outputs, job)}
               </div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
@@ -156,6 +158,8 @@ async function renderJobDetail(main) {
         }).join('')}
       </div>
     ` : ''}
+
+    ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}
 
     <div class="card">
       <div class="flex-between">
@@ -248,6 +252,89 @@ async function submitJoReturn(jobId, to) {
   if (!note) return toast('Write the reason in the note first.', 'error');
   if (!confirm('Return this Job Order to ' + (to === 'modcraft' ? 'the Modcraft user who prepared the quotation' : 'staff') + '?')) return;
   try { const r = await Data.joReturn(jobId, to, note); toast(to === 'modcraft' ? 'Returned — ' + ((r && r.notified) || 0) + ' person(s) messaged in Modcraft.' : 'Returned to staff.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---- Actual output (Piece 2) ---------------------------------------------------------------
+   What the returned process sheets say was done: per process, per day, per machine. Staff enters
+   it; a supervisor confirms (or rejects with a note). Confirmed pieces move the stage against the
+   pieces the JO routes through it. Only on an approved JO. */
+function _outputTotals(stage, components, outputs, job) {
+  const planned = componentsForStage(components, stage.stage_code, job).length;
+  const mine = outputs.filter((o) => o.stage_id === stage.id);
+  const confirmed = mine.filter((o) => o.status === 'confirmed').reduce((a, o) => a + o.pieces, 0);
+  const pending = mine.filter((o) => o.status === 'entered').reduce((a, o) => a + o.pieces, 0);
+  return { planned, confirmed, pending };
+}
+function _outputLine(stage, components, outputs, job) {
+  const t = _outputTotals(stage, components, outputs, job);
+  if (!t.planned && !t.confirmed && !t.pending) return '';
+  return ' · actual <strong>' + t.confirmed + '</strong> / ' + t.planned + ' pcs' + (t.pending ? ' (+' + t.pending + ' awaiting confirmation)' : '');
+}
+function renderOutputCard(job, stages, components, outputs, machines) {
+  const canEnter = pmesCan('staff'), canConfirm = pmesCan('supervisor');
+  const today = new Date().toISOString().slice(0, 10);
+  const stageLabel = (code) => { const t = State.stageTypes.find((x) => x.code === code); return t ? t.label : code; };
+  const machineName = (id) => { const m = machines.find((x) => x.id === id); return m ? m.name : ''; };
+  const rows = outputs.map((o) => {
+    const badge = { entered: '<span class="badge amber">awaiting confirmation</span>', confirmed: '<span class="badge green">confirmed</span>', rejected: '<span class="badge red">rejected</span>' }[o.status];
+    const who = escapeHtml(o.entered_by_name || o.entered_by);
+    return '<tr><td>' + escapeHtml(o.work_date) + '</td><td>' + escapeHtml(stageLabel(o.stage_code)) + '</td><td><strong>' + o.pieces + '</strong></td>'
+      + '<td>' + (o.hours != null ? o.hours : '—') + '</td><td>' + escapeHtml(o.operator || '—') + (o.machine_id ? '<br><span class="small">' + escapeHtml(machineName(o.machine_id)) + '</span>' : '') + '</td>'
+      + '<td>' + badge + '<br><span class="small">' + who + (o.status !== 'entered' ? ' · ' + escapeHtml(o.confirmed_by_name || o.confirmed_by || '') : '') + '</span>'
+      + (o.notes ? '<br><span class="small">' + escapeHtml(o.notes) + '</span>' : '') + (o.confirm_note ? '<br><span class="small">Supervisor: ' + escapeHtml(o.confirm_note) + '</span>' : '') + '</td>'
+      + '<td style="white-space:nowrap">'
+      + (canConfirm && o.status === 'entered' ? '<button class="btn primary sm" onclick="confirmOutput(\'' + o.id + '\',true)">Confirm</button> <button class="btn outline sm" onclick="confirmOutput(\'' + o.id + '\',false)">Reject</button> ' : '')
+      + (o.status === 'entered' && (canConfirm || (State.me && o.entered_by === State.me.email)) ? '<button class="btn outline sm" onclick="deleteOutput(\'' + o.id + '\')">Remove</button>' : '')
+      + '</td></tr>';
+  }).join('');
+  return `
+    <div class="card">
+      <h2>Actual output <span class="small">from the returned process sheets</span></h2>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:8px 0 4px;">
+        ${stages.map((s) => { const t = _outputTotals(s, components, outputs, job); const pct = t.planned ? Math.min(100, Math.round(t.confirmed / t.planned * 100)) : 0;
+          return '<div style="min-width:140px;"><div class="small"><strong>' + escapeHtml(stageLabel(s.stage_code)) + '</strong> ' + t.confirmed + ' / ' + t.planned + '</div>'
+            + '<div style="background:#e4e9ee;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;"><div style="background:' + (pct >= 100 ? 'var(--green)' : 'var(--amber)') + ';height:100%;width:' + pct + '%;"></div></div></div>'; }).join('')}
+      </div>
+      ${canEnter ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+          <label class="field-label">Enter output from a returned sheet</label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+            <select id="outStage">${stages.map((s) => '<option value="' + s.id + '">' + escapeHtml(stageLabel(s.stage_code)) + '</option>').join('')}</select>
+            <input type="date" id="outDate" value="${today}" max="${today}">
+            <input type="number" id="outPieces" min="0" step="1" placeholder="Pieces done">
+            <input type="number" id="outHours" min="0" step="0.25" placeholder="Hours (optional)">
+            <input type="text" id="outOperator" placeholder="Operator">
+            <select id="outMachine"><option value="">Machine (optional)</option>${machines.filter((m) => m.active !== false).map((m) => '<option value="' + m.id + '">' + escapeHtml(m.name) + (m.stage_code ? ' · ' + m.stage_code : '') + '</option>').join('')}</select>
+          </div>
+          <input type="text" id="outNotes" placeholder="Notes (rework, breakage, why short)" style="margin-top:8px;">
+          <button class="btn primary sm" style="margin-top:8px;" onclick="submitOutput('${job.id}')">Add entry</button>
+          <span class="small" style="margin-left:8px;">A supervisor confirms each entry before it counts.</span>
+        </div>` : ''}
+      ${rows ? '<div style="margin-top:12px;overflow-x:auto;"><table class="comp-table"><thead><tr><th>Date</th><th>Process</th><th>Pcs</th><th>Hrs</th><th>Operator / machine</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+             : '<p class="small" style="margin-top:10px;">No output entered yet.</p>'}
+    </div>`;
+}
+async function submitOutput(jobId) {
+  const pieces = parseInt(document.getElementById('outPieces').value, 10);
+  if (isNaN(pieces) || pieces < 0) return toast('Enter the pieces done.', 'error');
+  const hoursRaw = document.getElementById('outHours').value;
+  try {
+    await Data.outputEnter({ job_id: jobId, stage_id: document.getElementById('outStage').value, work_date: document.getElementById('outDate').value,
+      pieces, hours: hoursRaw === '' ? null : Number(hoursRaw), operator: document.getElementById('outOperator').value.trim(),
+      machine_id: document.getElementById('outMachine').value || null, notes: document.getElementById('outNotes').value.trim() });
+    toast('Entered — waiting for a supervisor to confirm.', 'success'); render();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function confirmOutput(id, ok) {
+  const note = ok ? '' : (prompt('Why is this entry rejected?') || '').trim();
+  if (!ok && !note) return;
+  try { await Data.outputConfirm(id, ok, note); toast(ok ? 'Confirmed.' : 'Rejected.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function deleteOutput(id) {
+  if (!confirm('Remove this entry?')) return;
+  try { await Data.outputDelete(id); toast('Removed.', 'success'); render(); }
   catch (e) { toast(e.message, 'error'); }
 }
 

@@ -311,6 +311,18 @@ const Data = {
     const { data, error } = await sb.rpc('pmes_jo_return', { p_job: jobId, p_to: to, p_note: note });
     if (error) throw error; return data;
   },
+  // Actual output (Piece 2): staff keys it from the returned process sheets; supervisor confirms.
+  async listStageOutputs(jobId) {
+    const { data, error } = await sb.from(T('stage_outputs')).select('*').eq('job_id', jobId).order('work_date', { ascending: false }).order('entered_at', { ascending: false });
+    if (error) throw error; return data || [];
+  },
+  async outputEnter(row) {
+    const { data, error } = await sb.rpc('pmes_output_enter', { p_job: row.job_id, p_stage: row.stage_id, p_date: row.work_date, p_pieces: row.pieces,
+      p_hours: row.hours, p_operator: row.operator || null, p_machine: row.machine_id || null, p_notes: row.notes || null });
+    if (error) throw error; return data;
+  },
+  async outputDelete(id) { const { error } = await sb.rpc('pmes_output_delete', { p_id: id }); if (error) throw error; },
+  async outputConfirm(id, ok, note) { const { error } = await sb.rpc('pmes_output_confirm', { p_id: id, p_ok: ok, p_note: note || null }); if (error) throw error; },
   async listStageTypes() {
     const { data, error } = await sb.from(T('stage_types')).select('*').eq('active', true).order('sort_order');
     if (error) throw error;
