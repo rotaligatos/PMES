@@ -190,3 +190,27 @@ mapping — the same rule as the app's `componentsForStage`). Never demotes a st
 output also moves a `material_wait` job to `in_production`. Job page: "Actual output" card with the
 entry form, per-process progress bars, and the entry list with Confirm / Reject / Remove; each stage
 row shows actual / planned. Nothing here touches barcode scanning — scans stay the long-term way.
+
+## Update 2026-09-26 (Piece 3) — process capacity lives in PMES; schedule from approved JOs
+
+- **`pmes_stage_capacity`** (company × process): unit, teams, shifts/day, output/shift →
+  `daily_capacity`, days/week, `source` (modcraft | pmes). **This is the home of capacity now.**
+  `pmes_capacity_mirror_modcraft(company)` copies Modcraft's Settings → Services capacity in as the
+  starting point, one representative service per process (CUT ← "Cutting MDF/PB/Plywood (4'x8')",
+  SCUT ← "Routeriing (Special Cut)", EBA/EBB ← "Edgebanding EVA" one team each, MEB ← "Manual
+  Edgebanding EVA", HPL ← "HPL Lamination (MDF/PB, 1 Face)", MHPL ← "HPL Lamination (Plywood, 1 Face)",
+  GRV ← "Grooving (3mm width melamine)", DRL ← "Boring 35mm (Hinges)"; workdays/week from PPIC's
+  26/month → 6). Rows edited in PMES (`source='pmes'`) are kept by a re-mirror. **MSSI was
+  mirrored on 2026-09-26 (9 processes).** ASM / QC / PACK / CURE have no Modcraft figure — set them
+  in PMES. Edit: IE tab → "Process capacity" card (manager+; `pmes_capacity_set`).
+- **Schedule tab** (`screens-schedule.js`, pure maths in `schedule.js`, tested by
+  `node schedule.test.js`): approved, active, not-handed-off JOs of the company, in approval order;
+  each process's load taken from the mother JO in that process's own unit (cutting lm, edge-banding
+  lm, HPL boards, grooving lm, holes; pieces elsewhere), less confirmed output (Piece 2); days =
+  load ÷ daily capacity; one resource per process; Sundays skipped (Saturdays too on a 5-day week).
+  A process with no capacity, or capacity in a different unit than the load, is NAMED in the row,
+  never divided. Nothing is stored — recomputed from the JOs and outputs. Manual overrides and a
+  persisted plan are for later.
+- Modcraft still holds its own Services capacity for pricing; PMES reading is the next hand-over
+  (Piece 4 territory). Latent: `boot()` can call `render()` before later screen scripts have parsed
+  if the session resolves instantly — only seen with a stubbed client, not on a real network.

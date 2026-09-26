@@ -323,6 +323,19 @@ const Data = {
   },
   async outputDelete(id) { const { error } = await sb.rpc('pmes_output_delete', { p_id: id }); if (error) throw error; },
   async outputConfirm(id, ok, note) { const { error } = await sb.rpc('pmes_output_confirm', { p_id: id, p_ok: ok, p_note: note || null }); if (error) throw error; },
+  // Process capacity per company (Piece 3) — the home of capacity; Modcraft is mirrored in once.
+  async listStageCapacity(company) {
+    const { data, error } = await sb.from(T('stage_capacity')).select('*').eq('company', company);
+    if (error) throw error; return data || [];
+  },
+  async setStageCapacity(company, stage, unit, teams, shifts, output, workdays, note) {
+    const { error } = await sb.rpc('pmes_capacity_set', { p_company: company, p_stage: stage, p_unit: unit, p_teams: teams, p_shifts: shifts, p_output: output, p_workdays: workdays, p_note: note || null });
+    if (error) throw error;
+  },
+  async mirrorCapacity(company, force) {
+    const { data, error } = await sb.rpc('pmes_capacity_mirror_modcraft', { p_company: company, p_force: !!force });
+    if (error) throw error; return data;
+  },
   async listStageTypes() {
     const { data, error } = await sb.from(T('stage_types')).select('*').eq('active', true).order('sort_order');
     if (error) throw error;
@@ -523,6 +536,10 @@ async function render() {
     case 'excess':
       title.textContent = 'Excess Material';
       await renderExcess(main);
+      break;
+    case 'schedule':
+      title.textContent = 'Schedule';
+      await renderSchedule(main);
       break;
     case 'ie':
       title.textContent = 'Industrial Engineering';

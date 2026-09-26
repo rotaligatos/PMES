@@ -13,8 +13,9 @@ const IEState = {
 };
 
 async function renderIE(main) {
-  main.innerHTML = `<div id="ieBody"></div>`;
+  main.innerHTML = `<div id="ieCapacity"></div><div id="ieBody"></div>`;
   const body = document.getElementById('ieBody');
+  if (IEState.view === 'sheet') await renderCapacityCard(document.getElementById('ieCapacity'));
 
   if (IEState.view === 'machineDetail') {
     await renderMachineDetail(body, IEState.selectedMachineId);

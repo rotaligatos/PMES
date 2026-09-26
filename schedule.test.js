@@ -1,0 +1,55 @@
+// node schedule.test.js — pure checks on the Piece 3 scheduler. No network, no DOM.
+const S = require('./schedule.js');
+let fails = 0; const ok = (c, m) => { console.log((c ? '  PASS ' : '  FAIL ') + m); if (!c) fails++; };
+
+const stages = ['CUT', 'EBA', 'DRL', 'ASM', 'QC', 'PACK'].map((c, i) => ({ id: 's' + c, stage_code: c, sequence_index: i, status: 'not_started' }));
+const parts = [
+  { p: 1, qty: 10, route: ['CUT', 'EBA', 'DRL', 'ASM', 'QC', 'PACK'] },
+  { p: 2, qty: 10, route: ['CUT', 'EBA', 'ASM', 'QC', 'PACK'] },
+];
+const comps = [];
+parts.forEach((p) => { for (let i = 0; i < p.qty; i++) comps.push({ route: p.route }); });
+const job = { id: 'j1', job_code: 'JO-1', jo_approved_at: '2026-09-26T01:00:00Z',
+  mother_jo: { parts, boards: [], services: { cuttingLM: 120, edgebandingLM: 90, holeCount: 40, extraServicesByName: [] } } };
+
+const load = S.stageLoad(job, comps, stages);
+ok(load.CUT.qty === 120 && load.CUT.unit === 'lm', 'cutting load = the JO cutting lm');
+ok(load.EBA.qty === 90 && load.EBA.unit === 'lm', 'edge-banding load = the JO edgebanding lm');
+ok(load.DRL.qty === 40 && load.DRL.unit === 'holes' && load.DRL.pieces === 10, 'drilling load = holes, only the 10 drilled pieces count');
+ok(load.ASM.qty === 20 && load.ASM.unit === 'pieces', 'assembly load = pieces');
+
+const cap = { CUT: { daily_capacity: 60, unit: 'lm', workdays_per_week: 6 }, EBA: { daily_capacity: 45, unit: 'lm', workdays_per_week: 6 },
+  DRL: { daily_capacity: 40, unit: 'holes', workdays_per_week: 6 }, ASM: { daily_capacity: 10, unit: 'pieces', workdays_per_week: 6 } };
+const mon = new Date(2026, 8, 28); // Monday
+const r = S.forwardSchedule([{ job, stages, components: comps, outputs: [] }], cap, mon);
+const row = (c) => r.rows.find((x) => x.stage_code === c);
+ok(row('CUT').days === 2 && row('CUT').start.getDate() === 28 && row('CUT').end.getDate() === 29, 'CUT 120 lm at 60/day = 2 days, Mon–Tue');
+ok(row('EBA').days === 2 && row('EBA').start.getDate() === 30, 'EBA starts the day after CUT ends');
+ok(row('DRL').days === 1 && row('DRL').start.getDate() === 2, 'DRL 1 day, Fri 2 Oct');
+ok(row('ASM').days === 2 && row('ASM').start.getDate() === 3 && row('ASM').end.getDate() === 5, 'ASM 2 days: Sat 3 then Mon 5 — Sunday skipped');
+ok(row('QC').days === 0 && /no capacity/.test(row('QC').note), 'a process with no capacity is reported, not silently scheduled');
+
+// two jobs on one process: the second waits for the first
+const job2 = Object.assign({}, job, { id: 'j2', job_code: 'JO-2', jo_approved_at: '2026-09-26T02:00:00Z' });
+const r2 = S.forwardSchedule([{ job: job2, stages, components: comps, outputs: [] }, { job, stages, components: comps, outputs: [] }], cap, mon);
+const cut1 = r2.rows.find((x) => x.job_code === 'JO-1' && x.stage_code === 'CUT'), cut2 = r2.rows.find((x) => x.job_code === 'JO-2' && x.stage_code === 'CUT');
+ok(cut1.start.getDate() === 28 && cut2.start.getDate() === 30, 'earlier-approved job goes first; the next waits for the saw');
+
+// confirmed output shortens what is left
+const outputs = [{ stage_id: 'sCUT', status: 'confirmed', pieces: 10 }];
+const r3 = S.forwardSchedule([{ job, stages, components: comps, outputs }], cap, mon);
+ok(r3.rows.find((x) => x.stage_code === 'CUT').remaining === 60 && r3.rows.find((x) => x.stage_code === 'CUT').days === 1, '10 of 20 pieces cut -> half the lm left -> 1 day');
+
+// unit mismatch is refused loudly
+const r4 = S.forwardSchedule([{ job, stages, components: comps, outputs: [] }], { CUT: { daily_capacity: 100, unit: 'pieces', workdays_per_week: 6 } }, mon);
+ok(/capacity is in pieces/.test(r4.rows.find((x) => x.stage_code === 'CUT').note), 'capacity in the wrong unit is named, not divided');
+
+// 5-day week skips Saturday
+const r5 = S.forwardSchedule([{ job, stages, components: comps, outputs: [] }], { ASM: { daily_capacity: 10, unit: 'pieces', workdays_per_week: 5 } }, new Date(2026, 9, 2));
+ok(r5.rows.find((x) => x.stage_code === 'ASM').end.getDate() === 5, 'ASM from Fri 2 Oct on a 5-day week ends Mon 5 (Sat+Sun skipped)');
+
+// a hand-made job (no mother JO) is loaded in pieces everywhere
+const plain = S.stageLoad({ id: 'x', job_code: 'X' }, comps, stages);
+ok(plain.CUT.qty === 20 && plain.CUT.unit === 'pieces', 'no mother JO -> pieces on every process');
+
+console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);
