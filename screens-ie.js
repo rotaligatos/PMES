@@ -34,6 +34,7 @@ async function renderCapacitySheet(el) {
   let rows = [], machines = [];
   try {
     [rows, machines] = await Promise.all([Data.listServiceCapacityMap(), Data.listMachines()]);
+    IEState.machines = machines; IEState.rows = rows;
   } catch (e) {
     el.innerHTML = `<div class="empty"><p>Could not load capacity data.</p></div>`;
     return;
@@ -45,7 +46,7 @@ async function renderCapacitySheet(el) {
   const laborOnly = [];
 
   rows.forEach((r) => {
-    if (r.modcraft_machine_type && r.machine_id) {
+    if (r.machine_id) {
       if (!byMachine[r.machine_id]) byMachine[r.machine_id] = { machine: machines.find((m) => m.id === r.machine_id), services: [] };
       byMachine[r.machine_id].services.push(r);
     } else if (r.modcraft_machine_type && !r.machine_id) {
@@ -76,7 +77,7 @@ async function renderCapacitySheet(el) {
     <div class="sheet-scroll">
       <table class="sheet-table">
         <thead>
-          <tr><th style="width:170px;">Machine</th><th>Services</th><th style="width:100px;">Capacity</th><th style="width:80px;">UOM</th><th style="width:160px;">Remarks</th></tr>
+          <tr><th style="width:170px;">Machine</th><th>Services</th><th style="width:100px;">Capacity</th><th style="width:80px;">UOM</th><th style="width:160px;">Remarks</th><th style="width:150px;">Move to</th></tr>
         </thead>
         <tbody id="sheetBody"></tbody>
       </table>
@@ -156,7 +157,27 @@ function renderServiceCells(r, machineId) {
       <input type="text" class="cell-input text-left" value="${escapeHtml(r.remarks || '')}"
         placeholder="—" onchange="updateCapacityCell(${r.price_service_id}, '${machineId || ''}', 'remarks', this.value)" />
     </td>
+    <td>
+      <select class="cell-input text-left" onchange="moveServiceToMachine(${r.price_service_id}, this.value)" title="Group this service under a machine">
+        <option value="" ${machineId ? '' : 'selected'}>— Others (no machine)</option>
+        ${(IEState.machines || []).filter((m) => m.active !== false).map((m) => `<option value="${m.id}" ${m.id === machineId ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+      </select>
+    </td>
   `;
+}
+// Group a service under a machine (or take it out to "Others"). One machine per service; the
+// capacity/UOM/remarks typed against the old machine move with it.
+async function moveServiceToMachine(priceServiceId, machineId) {
+  try {
+    const old = (IEState.rows || []).find((r) => r.price_service_id === priceServiceId) || {};
+    await Data.unassignService(priceServiceId);
+    if (machineId) {
+      const a = await Data.assignServiceToMachine(priceServiceId, machineId);
+      if (old.assignment_id && (old.capacity_override != null || old.uom_override || old.remarks))
+        await sb.from(T('service_machine_assignments')).update({ capacity_override: old.capacity_override, uom_override: old.uom_override, remarks: old.remarks }).eq('id', a.id);
+    }
+    toast(machineId ? 'Moved.' : 'Moved to Others.', 'success'); render();
+  } catch (e) { toast('Could not move: ' + e.message, 'error'); render(); }
 }
 
 async function renameMachine(machineId, newName) {
