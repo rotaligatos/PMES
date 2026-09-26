@@ -214,3 +214,20 @@ row shows actual / planned. Nothing here touches barcode scanning — scans stay
 - Modcraft still holds its own Services capacity for pricing; PMES reading is the next hand-over
   (Piece 4 territory). Latent: `boot()` can call `render()` before later screen scripts have parsed
   if the session resolves instantly — only seen with a stubbed client, not on a real network.
+
+### Same day — the IE capacity sheet was empty and ungrouped
+`pmes_service_capacity_map` reads `price_services.teams/shifts_per_day/output_per_shift` and
+`cost_data->>'machineType'`, but Modcraft never wrote those (its Services capacity lives only in
+Settings CONFIG → `serviceCapacity`; `cost_data` was `{}`), so the sheet showed no capacity and no
+machine grouping. Now (migration `pmes_services_mirror_modcraft_capacity`):
+- `pmes_sync_services_from_modcraft()` copies CONFIG capacity into those columns and sets a machine
+  type from the service name (cutting/ripping/tapering/routering → panel_saw · edgebanding/lipping/
+  EBT slitting → edgebander · manual edgebanding → manual_edgebander · boring → boring_machine ·
+  HPL lamination/glueing → press). Grooving, sanding, shaker door, postforming etc. stay "Others".
+- `pmes_auto_assign_service_machines()` puts each machine-typed service under the first active
+  machine of that type (only where nothing is assigned yet — moves you make are kept).
+- Both run on every Modcraft **Save settings** (trigger on `settings.CONFIG`) and after any Price DB
+  rewrite (statement trigger on `price_services` insert), so the sheet stays in step with Modcraft.
+  Verified: changing a service's output in CONFIG updates `price_services` in the same transaction.
+Result today: Panel Saw 1 (11 services), Edgebander A (10), Boring Machine 1 (9), Manual Lamination
+Station 1 (5), Manual Edgebander 1 (2), Others (29). No app code change was needed.
