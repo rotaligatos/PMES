@@ -11,7 +11,6 @@ async function renderJobDetail(main) {
     ]);
     State.jobMRs = await Data.listJobMRs(jobId).catch(() => []);
     State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
-    State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
     return;
@@ -202,7 +201,9 @@ function renderJoReviewCard(job, reviews) {
   const st = job.jo_review_status || 'received';
   const role = (State.me && State.me.role) || '';
   const canCheck = ['staff', 'supervisor', 'manager', 'admin'].includes(role) && st !== 'approved';
-  const isSup = pmesCan('supervisor'), isMgr = pmesCan('manager');
+  // A delegate (pmes_delegations) holds the manager's approval authority for the period.
+  const acting = State.me && State.me.acting_for;
+  const isSup = pmesCan('supervisor') || !!acting, isMgr = pmesCan('manager') || !!acting;
   const who = (e, n) => escapeHtml(n || e || '');
   // Materials status comes from the MRF (the materials person's receipts), not from a tick.
   const ms = State.jobMaterialState || { state: 'no_mrf' };
@@ -270,6 +271,7 @@ function renderJoReviewCard(job, reviews) {
       ${isSup && st !== 'approved' ? `
         <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
           <label class="field-label">Supervisor / manager</label>
+          ${acting && !pmesCan('manager') ? '<div class="callout info" style="margin:6px 0;">You are approving <strong>on behalf of ' + escapeHtml(acting.name || acting.email) + '</strong> (delegated until ' + fmtDate(acting.until) + '). It is recorded that way.</div>' : ''}
           <input type="text" id="joSupNote" placeholder="Note (required when returning, or when approving at your discretion)" />
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             ${approveBtn}

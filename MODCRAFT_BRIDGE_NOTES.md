@@ -338,3 +338,12 @@ or the supervisor is absent (or they delegated) — a written reason is required
 ("Manager discretion: …" in the history, `jo_manager_discretion` / `jo_discretion_reason`).
 Enforced in `pmes_jo_approve`; the review card shows the matching button. Tested by impersonation,
 rolled back: supervisor self-approval refused; manager without reason refused; with reason approved.
+
+## Update 2026-09-27 — approval delegation
+`pmes_delegations` (history, revoked never deleted). A manager (or a PMES admin for any manager)
+delegates Job Order approval authority to an active staff/supervisor/manager for up to 60 days, with a
+reason (`pmes_delegate_create`, `pmes_delegate_revoke`). `pmes_acting_for()` / `pmes_me().acting_for`.
+`pmes_jo_approve` uses the delegation ONLY where manager authority is needed (a staff delegate's
+approval, the manager step on incomplete materials, manager discretion) and then records
+"On behalf of <manager> (delegated)" + `jo_approved_on_behalf_of`. A delegation from someone no
+longer an active manager stops counting. Setup → Approval delegation. Tested by impersonation, rolled back.
