@@ -63,7 +63,7 @@ async function renderSettings(main) {
 }
 
 /* ---- Production users (PMES admin). Same list the Command Center manages. ---- */
-const PMES_ROLES = ['staff', 'operator', 'supervisor', 'manager', 'admin'];
+const PMES_ROLES = ['staff', 'materials', 'operator', 'supervisor', 'manager', 'admin'];
 
 async function renderPmesUsers() {
   const box = document.getElementById('pmesUsersCard');

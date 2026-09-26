@@ -260,59 +260,8 @@ const Data = {
     const { data, error } = await sb.from(T('jo_reviews')).select('*').eq('job_id', jobId).order('at', { ascending: false });
     if (error) throw error; return data || [];
   },
-  async joCheck(jobId, detailsOk, materialsOk, note) {
-    const { data, error } = await sb.rpc('pmes_jo_check', { p_job: jobId, p_details_ok: detailsOk, p_materials_ok: materialsOk, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joApprove(jobId, note) {
-    const { data, error } = await sb.rpc('pmes_jo_approve', { p_job: jobId, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joReturn(jobId, to, note) {
-    const { data, error } = await sb.rpc('pmes_jo_return', { p_job: jobId, p_to: to, p_note: note });
-    if (error) throw error; return data;
-  },
-  // Job Order review gate (Piece 1): staff check -> supervisor approve; returns go to staff or Modcraft.
-  async listJoReviews(jobId) {
-    const { data, error } = await sb.from(T('jo_reviews')).select('*').eq('job_id', jobId).order('at', { ascending: false });
-    if (error) throw error; return data || [];
-  },
-  async joCheck(jobId, detailsOk, materialsOk, note) {
-    const { data, error } = await sb.rpc('pmes_jo_check', { p_job: jobId, p_details_ok: detailsOk, p_materials_ok: materialsOk, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joApprove(jobId, note) {
-    const { data, error } = await sb.rpc('pmes_jo_approve', { p_job: jobId, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joReturn(jobId, to, note) {
-    const { data, error } = await sb.rpc('pmes_jo_return', { p_job: jobId, p_to: to, p_note: note });
-    if (error) throw error; return data;
-  },
-  // Job Order review gate (Piece 1): staff check -> supervisor approve; returns go to staff or Modcraft.
-  async listJoReviews(jobId) {
-    const { data, error } = await sb.from(T('jo_reviews')).select('*').eq('job_id', jobId).order('at', { ascending: false });
-    if (error) throw error; return data || [];
-  },
-  async joCheck(jobId, detailsOk, materialsOk, note) {
-    const { data, error } = await sb.rpc('pmes_jo_check', { p_job: jobId, p_details_ok: detailsOk, p_materials_ok: materialsOk, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joApprove(jobId, note) {
-    const { data, error } = await sb.rpc('pmes_jo_approve', { p_job: jobId, p_note: note || null });
-    if (error) throw error; return data;
-  },
-  async joReturn(jobId, to, note) {
-    const { data, error } = await sb.rpc('pmes_jo_return', { p_job: jobId, p_to: to, p_note: note });
-    if (error) throw error; return data;
-  },
-  // Job Order review gate (Piece 1): staff check -> supervisor approve; returns go to staff or Modcraft.
-  async listJoReviews(jobId) {
-    const { data, error } = await sb.from(T('jo_reviews')).select('*').eq('job_id', jobId).order('at', { ascending: false });
-    if (error) throw error; return data || [];
-  },
-  async joCheck(jobId, detailsOk, materialsOk, note) {
-    const { data, error } = await sb.rpc('pmes_jo_check', { p_job: jobId, p_details_ok: detailsOk, p_materials_ok: materialsOk, p_note: note || null });
+  async joCheck(jobId, detailsOk, materialsOk, note, proceedIncomplete) {
+    const { data, error } = await sb.rpc('pmes_jo_check', { p_job: jobId, p_details_ok: detailsOk, p_materials_ok: materialsOk, p_note: note || null, p_proceed_incomplete: !!proceedIncomplete });
     if (error) throw error; return data;
   },
   async joApprove(jobId, note) {
@@ -349,6 +298,10 @@ const Data = {
     if (error) throw error; return data;
   },
   // MRF from KEYSTONE (warehouse processes it there; production confirms receipt here).
+  async jobMaterialState(jobId) {
+    const { data, error } = await sb.rpc('pmes_job_material_state', { p_job: jobId });
+    if (error) throw error; return data || { state: 'no_mrf' };
+  },
   async listJobMRs(jobId) {
     const { data, error } = await sb.rpc('pmes_job_mrs', { p_job: jobId });
     if (error) throw error; return data || [];
@@ -625,37 +578,7 @@ function badgeForJobStatus(status) {
 function badgeForJoReview(job) {
   const s = job && job.jo_review_status;
   if (!s || s === 'approved') return '';
-  const map = { received: ['amber', 'JO to check'], checked: ['blue', 'JO awaiting approval'],
-    returned: ['red', job.jo_returned_to === 'modcraft' ? 'JO returned to Modcraft' : 'JO returned to staff'] };
-  const [cls, label] = map[s] || ['gray', s];
-  return '<span class="badge ' + cls + '">' + label + '</span>';
-}
-function joApproved(job) { return !!job && job.jo_review_status === 'approved'; }
-// Job Order review state — shown beside the production status wherever a job is listed.
-function badgeForJoReview(job) {
-  const s = job && job.jo_review_status;
-  if (!s || s === 'approved') return '';
-  const map = { received: ['amber', 'JO to check'], checked: ['blue', 'JO awaiting approval'],
-    returned: ['red', job.jo_returned_to === 'modcraft' ? 'JO returned to Modcraft' : 'JO returned to staff'] };
-  const [cls, label] = map[s] || ['gray', s];
-  return '<span class="badge ' + cls + '">' + label + '</span>';
-}
-function joApproved(job) { return !!job && job.jo_review_status === 'approved'; }
-// Job Order review state — shown beside the production status wherever a job is listed.
-function badgeForJoReview(job) {
-  const s = job && job.jo_review_status;
-  if (!s || s === 'approved') return '';
-  const map = { received: ['amber', 'JO to check'], checked: ['blue', 'JO awaiting approval'],
-    returned: ['red', job.jo_returned_to === 'modcraft' ? 'JO returned to Modcraft' : 'JO returned to staff'] };
-  const [cls, label] = map[s] || ['gray', s];
-  return '<span class="badge ' + cls + '">' + label + '</span>';
-}
-function joApproved(job) { return !!job && job.jo_review_status === 'approved'; }
-// Job Order review state — shown beside the production status wherever a job is listed.
-function badgeForJoReview(job) {
-  const s = job && job.jo_review_status;
-  if (!s || s === 'approved') return '';
-  const map = { received: ['amber', 'JO to check'], checked: ['blue', 'JO awaiting approval'],
+  const map = { received: ['amber', 'JO to check'], checked: ['blue', 'JO awaiting approval'], supervisor_ok: ['amber', 'JO awaiting manager'],
     returned: ['red', job.jo_returned_to === 'modcraft' ? 'JO returned to Modcraft' : 'JO returned to staff'] };
   const [cls, label] = map[s] || ['gray', s];
   return '<span class="badge ' + cls + '">' + label + '</span>';
@@ -697,7 +620,8 @@ function escapeHtml(s) {
 //   admin      — + manage Production users
 State.me = null;
 // staff = office production staff (not a machine operator): reads everything, writes nothing yet.
-const PMES_RANK = { staff: 5, operator: 10, supervisor: 20, manager: 30, admin: 40 };
+// materials = the person who completes the material transfer (confirms MRF receipt); same rank as staff.
+const PMES_RANK = { staff: 5, materials: 5, operator: 10, supervisor: 20, manager: 30, admin: 40 };
 function pmesCan(minRole) {
   return (PMES_RANK[State.me && State.me.role] || 0) >= (PMES_RANK[minRole] || 99);
 }

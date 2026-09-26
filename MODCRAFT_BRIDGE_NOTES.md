@@ -269,3 +269,25 @@ warehouse (stock) and purchase (outsource + made-to-order). Authorized at releas
   and processing without the cap are refused in the database (tested, rolled back).
 - MRFs released BEFORE today have no `mr_line_id` link: their receipts update the MRF but not the
   job-material readiness bars. No MRF has been released yet, so nothing is affected.
+
+## Update 2026-09-26 — materials status in the JO gate; proceeding with incomplete materials
+
+Rommel: materials are completed (received) by a different person who also uses PMES; the staff
+checking the JO see whether materials are complete or partial; staff may recommend proceeding with
+incomplete materials, with the approval of a supervisor AND a manager.
+- New PMES role **`materials`** (rank 5): the only non-supervisor who may confirm MRF receipt
+  (`pmes_mr_receive` now requires role `materials` or rank ≥ 20). Staff can no longer receive.
+- `pmes_job_material_state(job)` → complete / partial / none / no_mrf, from the job's MRF lines.
+  The JO check reads it; the "materials available" tick only exists for jobs with no MRF.
+- `pmes_jo_check(..., p_proceed_incomplete)`: details ok + materials complete → `checked`;
+  details ok + incomplete + recommend (reason required) → `checked` with `jo_proceed_incomplete`.
+  Only staff / supervisor / manager / admin may check (materials and operators may not).
+- `pmes_jo_approve`: complete → one supervisor approval. Incomplete → supervisor first
+  (`supervisor_ok`), then a manager, **two different people**; a manager cannot go first. If the
+  materials become complete in between, the single approval suffices. Nothing reaches the line
+  before `approved` (the Piece 1 trigger is unchanged).
+- Tested by impersonation, rolled back (staff refused receiving; 4/10 received; manager-first and
+  output-before-manager refused; history in order).
+- **Cleanup:** re-running the Piece 1 patch had inserted the review-gate data methods and two
+  helpers into app.js FOUR times (object keys / function declarations — last copy won, so it
+  worked, but it was a mess). Deduplicated to one copy each.

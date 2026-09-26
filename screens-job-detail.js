@@ -10,6 +10,8 @@ async function renderJobDetail(main) {
       Data.listStageOutputs(jobId).catch(() => []), Data.listMachines().catch(() => []),
     ]);
     State.jobMRs = await Data.listJobMRs(jobId).catch(() => []);
+    State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
+    State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
     return;
@@ -196,39 +198,72 @@ async function renderJobDetail(main) {
    Process JO print and stage Update buttons stay hidden. */
 function renderJoReviewCard(job, reviews) {
   const st = job.jo_review_status || 'received';
-  const canCheck = pmesCan('staff') && st !== 'approved';
-  const canApprove = pmesCan('supervisor');
+  const role = (State.me && State.me.role) || '';
+  const canCheck = ['staff', 'supervisor', 'manager', 'admin'].includes(role) && st !== 'approved';
+  const isSup = pmesCan('supervisor'), isMgr = pmesCan('manager');
   const who = (e, n) => escapeHtml(n || e || '');
+  // Materials status comes from the MRF (the materials person's receipts), not from a tick.
+  const ms = State.jobMaterialState || { state: 'no_mrf' };
+  const matBadge = {
+    complete: '<span class="badge green">Materials complete</span>',
+    partial: '<span class="badge amber">Materials partly received</span>',
+    none: '<span class="badge red">Materials not received yet</span>',
+    no_mrf: '<span class="badge gray">No MRF for this job</span>',
+  }[ms.state] || '';
+  const matLine = ms.state === 'no_mrf'
+    ? 'No material request came with this Job Order — staff confirm availability themselves.'
+    : ms.received + ' of ' + ms.requested + ' received · ' + ms.lines_complete + ' of ' + ms.lines + ' lines complete (from the MRF).';
+  const incomplete = job.jo_proceed_incomplete && ms.state !== 'complete';
   const state = {
     received: '<span class="badge amber">Received — waiting for staff check</span>',
-    checked: '<span class="badge blue">Checked — waiting for supervisor approval</span>',
+    checked: incomplete ? '<span class="badge amber">Recommended to proceed — waiting for supervisor</span>' : '<span class="badge blue">Checked — waiting for supervisor approval</span>',
+    supervisor_ok: '<span class="badge amber">Supervisor approved — waiting for manager</span>',
     approved: '<span class="badge green">Approved for the line</span>',
     returned: '<span class="badge red">Returned to ' + (job.jo_returned_to === 'modcraft' ? 'Modcraft' : 'staff') + '</span>',
   }[st];
   const hist = (reviews || []).map((r) => {
-    const what = { checked: 'Checked ✓', not_ok: 'Checked — not OK', approved: 'Approved', returned_staff: 'Returned to staff', returned_modcraft: 'Returned to Modcraft' }[r.action] || r.action;
-    const flags = r.action === 'checked' || r.action === 'not_ok' ? ' (details ' + (r.details_ok ? 'ok' : 'NOT ok') + ', materials ' + (r.materials_ok ? 'ok' : 'NOT ok') + ')' : '';
+    const what = { checked: 'Checked ✓', not_ok: 'Checked — not OK', recommend_proceed: 'Recommended to proceed (materials incomplete)', supervisor_ok: 'Supervisor approved', approved: 'Approved', returned_staff: 'Returned to staff', returned_modcraft: 'Returned to Modcraft' }[r.action] || r.action;
+    const m = r.material_state && r.material_state.state && r.material_state.state !== 'no_mrf' ? ' · materials ' + r.material_state.received + '/' + r.material_state.requested : '';
+    const flags = ['checked', 'not_ok', 'recommend_proceed'].includes(r.action) ? ' (details ' + (r.details_ok ? 'ok' : 'NOT ok') + ', materials ' + (r.materials_ok ? 'complete' : 'NOT complete') + m + ')' : m;
     return '<div class="small" style="padding:4px 0;border-bottom:1px solid var(--border);"><strong>' + what + '</strong>' + flags + ' — ' + who(r.by_email, r.by_name) + ', ' + fmtDate(r.at) + (r.note ? '<br>' + escapeHtml(r.note) : '') + '</div>';
   }).join('');
+  // Who may press Approve right now.
+  let approveBtn = '';
+  if (st === 'checked' && isSup) {
+    approveBtn = incomplete
+      ? (isMgr && !['supervisor'].includes(role) ? '<button class="btn primary sm" disabled title="Materials are incomplete: a supervisor approves first">Approve (supervisor first)</button>'
+                                                 : `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as supervisor</button>`)
+      : `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve for the line</button>`;
+  } else if (st === 'supervisor_ok') {
+    approveBtn = isMgr && job.jo_supervisor_by !== (State.me && State.me.email)
+      ? `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as manager — send to the line</button>`
+      : '<button class="btn primary sm" disabled title="Needs a manager (not the supervisor who approved)">Waiting for manager</button>';
+  } else if (isSup) {
+    approveBtn = '<button class="btn primary sm" disabled title="Staff must check it first">Approve for the line</button>';
+  }
   return `
     <div class="card" style="border-left:4px solid ${st === 'approved' ? 'var(--green)' : st === 'returned' ? 'var(--red)' : 'var(--amber)'};">
       <div class="flex-between"><h2 class="mb-0">Job Order review</h2>${state}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${matBadge}<span class="small">${escapeHtml(matLine)}</span></div>
       ${st === 'returned' && job.jo_return_note ? '<div class="callout blocked" style="margin-top:8px;"><strong>Returned:</strong> ' + escapeHtml(job.jo_return_note) + '</div>' : ''}
-      ${st !== 'approved' ? '<div class="callout info" style="margin-top:8px;">Nothing goes to the line until a supervisor approves this Job Order. Staff: check the details against the cutting list and confirm the materials are available.</div>' : ''}
-      ${canCheck ? `
+      ${incomplete && job.jo_proceed_reason ? '<div class="callout info" style="margin-top:8px;"><strong>Proceed with incomplete materials — staff reason:</strong> ' + escapeHtml(job.jo_proceed_reason) + (job.jo_supervisor_by ? '<br>Supervisor approved: ' + escapeHtml(job.jo_supervisor_by) + ', ' + fmtDate(job.jo_supervisor_at) : '') + '</div>' : ''}
+      ${st !== 'approved' ? '<div class="callout info" style="margin-top:8px;">Nothing goes to the line until it is approved. With complete materials a supervisor approves; with incomplete materials staff may recommend proceeding, and it then needs a supervisor <strong>and</strong> a manager.</div>' : ''}
+      ${canCheck && st !== 'supervisor_ok' ? `
         <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
           <label class="field-label">Staff check</label>
           <label style="display:block;margin:6px 0;"><input type="checkbox" id="joDetailsOk" ${job.jo_details_ok ? 'checked' : ''}> All details are correct (parts, sizes, materials, edges match the cutting list)</label>
-          <label style="display:block;margin:6px 0;"><input type="checkbox" id="joMaterialsOk" ${job.jo_materials_ok ? 'checked' : ''}> All materials are available</label>
-          <input type="text" id="joCheckNote" placeholder="Note (what is missing or wrong, if anything)" style="margin-top:6px;" />
+          ${ms.state === 'no_mrf'
+            ? `<label style="display:block;margin:6px 0;"><input type="checkbox" id="joMaterialsOk" ${job.jo_materials_ok ? 'checked' : ''}> All materials are available</label>`
+            : ms.state !== 'complete' ? `<label style="display:block;margin:6px 0;"><input type="checkbox" id="joProceed"> Recommend proceeding with incomplete materials (needs supervisor and manager approval)</label>` : ''}
+          <input type="text" id="joCheckNote" placeholder="${ms.state !== 'complete' && ms.state !== 'no_mrf' ? 'Reason to proceed, or what is wrong' : 'Note (what is missing or wrong, if anything)'}" style="margin-top:6px;" />
           <button class="btn primary sm" style="margin-top:8px;" onclick="submitJoCheck('${job.id}')">Save check</button>
         </div>` : ''}
-      ${canApprove && st !== 'approved' ? `
+      ${isSup && st !== 'approved' ? `
         <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
-          <label class="field-label">Supervisor</label>
+          <label class="field-label">Supervisor / manager</label>
           <input type="text" id="joSupNote" placeholder="Note (required when returning)" />
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            <button class="btn primary sm" ${st === 'checked' ? '' : 'disabled title="Staff must check it first"'} onclick="submitJoApprove('${job.id}')">Approve for the line</button>
+            ${approveBtn}
             <button class="btn outline sm" onclick="submitJoReturn('${job.id}','staff')">Return to staff</button>
             <button class="btn outline sm" onclick="submitJoReturn('${job.id}','modcraft')">Return to Modcraft</button>
           </div>
@@ -237,17 +272,28 @@ function renderJoReviewCard(job, reviews) {
     </div>`;
 }
 async function submitJoCheck(jobId) {
-  const d = document.getElementById('joDetailsOk').checked, m = document.getElementById('joMaterialsOk').checked;
+  const d = document.getElementById('joDetailsOk').checked;
+  const mEl = document.getElementById('joMaterialsOk'), pEl = document.getElementById('joProceed');
+  const m = mEl ? mEl.checked : false, proceed = pEl ? pEl.checked : false;
   const note = document.getElementById('joCheckNote').value.trim();
-  if (!(d && m) && !note) return toast('Say what is wrong or missing.', 'error');
-  try { const r = await Data.joCheck(jobId, d, m, note); toast(r && r.status === 'checked' ? 'Checked — waiting for the supervisor.' : 'Check saved; the Job Order is not ready yet.', 'success'); render(); }
-  catch (e) { toast(e.message, 'error'); }
+  const ms = State.jobMaterialState || { state: 'no_mrf' };
+  const matOk = ms.state === 'no_mrf' ? m : ms.state === 'complete';
+  if (!d && !note) return toast('Say what is wrong.', 'error');
+  if (d && !matOk && !proceed && !note) return toast('Materials are not complete — say what is missing, or recommend proceeding with a reason.', 'error');
+  if (proceed && !note) return toast('Give the reason to proceed with incomplete materials.', 'error');
+  try {
+    const r = await Data.joCheck(jobId, d, m, note, proceed);
+    const msg = { checked: 'Checked — waiting for the supervisor.', recommend_proceed: 'Recommended — needs supervisor, then manager.' }[r && r.action] || 'Check saved; the Job Order is not ready yet.';
+    toast(msg, 'success'); render();
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function submitJoApprove(jobId) {
   const note = document.getElementById('joSupNote').value.trim();
-  if (!confirm('Approve this Job Order for the line?')) return;
-  try { await Data.joApprove(jobId, note); toast('Approved — it can now be printed and scheduled.', 'success'); render(); }
-  catch (e) { toast(e.message, 'error'); }
+  if (!confirm('Approve this Job Order?')) return;
+  try {
+    const r = await Data.joApprove(jobId, note);
+    toast(r && r.status === 'supervisor_ok' ? 'Supervisor approval recorded — a manager must approve next (materials incomplete).' : 'Approved — it can now be printed and scheduled.', 'success'); render();
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function submitJoReturn(jobId, to) {
   const note = document.getElementById('joSupNote').value.trim();
@@ -347,7 +393,7 @@ async function deleteOutput(id) {
    job's materials above, so the JO check can see it. */
 function renderMRCard(job, mrs) {
   if (!mrs.length) return `<div class="card"><h2>Material requests (MRF)</h2><p class="small">No MRF for this job yet — KEYSTONE issues it with the Job Order at release.</p></div>`;
-  const canReceive = pmesCan('staff');
+  const canReceive = (State.me && State.me.role === 'materials') || pmesCan('supervisor');
   const pill = (st) => { const c = { authorized: 'blue', partially_issued: 'amber', issued: 'amber', partially_received: 'amber', received: 'green', closed: 'gray', cancelled: 'red' }[st] || 'gray';
     const t = { authorized: 'Waiting for the warehouse', partially_issued: 'Warehouse partly processed', issued: 'Processed — confirm receipt', partially_received: 'Partly received', received: 'Received' }[st] || st;
     return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
