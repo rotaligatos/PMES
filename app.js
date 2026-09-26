@@ -538,7 +538,8 @@ function escapeHtml(s) {
 //   manager    — + setup lists, machines, standards
 //   admin      — + manage Production users
 State.me = null;
-const PMES_RANK = { operator: 10, supervisor: 20, manager: 30, admin: 40 };
+// staff = office production staff (not a machine operator): reads everything, writes nothing yet.
+const PMES_RANK = { staff: 5, operator: 10, supervisor: 20, manager: 30, admin: 40 };
 function pmesCan(minRole) {
   return (PMES_RANK[State.me && State.me.role] || 0) >= (PMES_RANK[minRole] || 99);
 }
