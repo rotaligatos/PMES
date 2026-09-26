@@ -1,0 +1,151 @@
+# MODCRAFT_BRIDGE_NOTES.md — ModCraft → Production linkage
+
+**Status:** Not built. This document exists so the bridge is a defined, scoped task when
+you're ready — not a rediscovery exercise. Written 2026-07-17 during the Production v1
+scaffold, based on direct inspection of ModCraft's live schema.
+
+---
+
+## Why this is separate from the app itself
+
+Production v1 was deliberately built **standalone** — job intake, route assignment, and
+cutting-optimization/component-generation are all manual-entry screens right now. This
+follows the same discipline the project already applies to Cabinet Vision and Odoo
+(PRODUCTION_CONTEXT.md Sections 7 & 8a): don't build tight coupling to an integration
+before its actual shape is confirmed and intentionally chosen.
+
+The seam is real, though — every place Production will eventually read from ModCraft is
+already marked in the code (search for "bridge" or "linkage" in the app's source) and the
+schema has a soft (non-FK) reference (`pmes_production_jobs.quotation_serial`) sitting
+exactly where the real link will attach.
+
+---
+
+## Where both apps actually live
+
+**Same Supabase project:** `nkpekroogqsmfilypowd` ("Modcraft"). This is a correction from
+an earlier version of PRODUCTION_CONTEXT.md, which referenced `nssviuuagtlvxjvvvagt` —
+that project is actually "Social-Content-Manager," an unrelated app. Production's tables
+were built directly in the same project as ModCraft's real data, using a `pmes_` prefix,
+specifically so the eventual bridge is a same-database join rather than a cross-project
+integration.
+
+---
+
+## What ModCraft's real schema already has (confirmed by inspection, 2026-07-17)
+
+| Table | Relevant columns | What it's for |
+|---|---|---|
+| `quotations` | `serial` (PK), `status`, `stage`, `service_type`, `company`, `final_approved_at` | The finalized quotation. `serial` is the natural JOB key. `company` is very likely the `destination_company` source (MSSI/WCLI/CWLI). **Correction (2026-07-17 night, checked against real data):** `final_approved_at` is NOT a reliable signal — as of this check, zero quotations have it set, even though two exist at `status = 'Client Approved'` with `final_locked_at` populated. **The trigger to watch is `status = 'Client Approved'`, not the `final_approved_at` timestamp.** This directly affects bridge step 3a below. |
+| `quotation_states` | `state` (jsonb), `cost_report` (jsonb) | Probably holds richer per-quotation detail than the flat columns above — worth inspecting `state`'s actual shape before building the route-derivation mapper. |
+| `pending_orders` | `type_of_service`, `board_substrate`, `edging`, `boring`, `cutting`, `lipping`, `hg_included`, `hg_groove`, `hg_installation`, `hg_by`, `source_company` | **This answers the Section 11 open question** — service spec is discrete typed columns, not free text, at least at the intake stage. These map naturally onto route-mapping `match_criteria`. |
+| `board_layouts` | `serial`, `material`, `color`, `texture`, `thickness_mm`, `board_size`, `boards_needed`, `utilization_pct`, `areas` | This is ModCraft's own cutting-optimization output — already close to what `pmes_excess_materials` needs, and `areas` here should be checked against whether it already uses the `KIT`/`BED`/etc. vocabulary or needs normalization. |
+| `drawing_analyses` | `serial`, `file_name`, `file_type`, `component_count`, `raw_file_path`, `output_file_path` | **This is the uploaded cutting list / shop drawing / elevation file** referenced throughout Section 8c. It already has `component_count` — meaning ModCraft may already be parsing components before Production ever sees the job. This is the single most important table to inspect before building the intake bridge. |
+
+---
+
+## The bridge, broken into concrete steps (not yet started)
+
+1. **Inspect `drawing_analyses.raw_file_path` / `output_file_path` contents for a real job.**
+   Determines whether the Section 8c open item ("is the file structured or does it need
+   normalization?") has an easy or hard answer. This is the highest-leverage single
+   investigation — it determines the shape of everything downstream.
+
+2. **Inspect `quotation_states.state` (jsonb) for a real approved quotation.**
+   Determines whether service-flag detail lives here or is fully captured by
+   `pending_orders`'s discrete columns. This directly feeds `pmes_route_mappings.match_criteria`.
+
+3. **Replace the intake screen's manual destination/service-spec entry with a quotation
+   picker** that reads `quotations` (filtered to `final_approved_at is not null`), pulls
+   `company` → `destination_company`, and surfaces the linked `pending_orders` /
+   `quotation_states` row for the operator to confirm rather than retype.
+
+3a. **(Added 2026-07-17 late evening) Populate `pmes_job_materials` from ModCraft instead of
+   manual entry.** As of tonight, required materials per job are entered by hand on the job
+   detail page. `board_layouts` (material, color, thickness_mm, boards_needed) is the obvious
+   ModCraft-side source once step 1's file inspection clarifies exactly what's available per
+   quotation. This is a natural pairing with step 3 — the same quotation picker should be able
+   to pre-fill the materials-required list, not just the service spec.
+
+3b. **(Added 2026-07-17 night) Auto-create Production jobs when a quotation reaches Client
+   Approved — this is the actual real trigger, not something a Production user does.** Right
+   now the "Register approved quotation" screen is manual (a person types in a job code and
+   picks options) — it's a stand-in for what should really be: something watches
+   `quotations.status = 'Client Approved'` (confirmed as the reliable field — see the
+   `quotations` table note above) and automatically inserts a `pmes_production_jobs` row,
+   inactive, with `source_quotation_status` snapshotting that status. This could be a Postgres
+   trigger on `quotations` itself (same database, so technically straightforward), or a
+   polling/webhook approach if the eventual Admin app should be the one deciding when this
+   happens instead of ModCraft directly. Worth deciding which owns this decision before
+   building it — it's not just a wiring question, it's "does a job appear because ModCraft says
+   so, or because Admin says so, once Admin exists."
+
+3c. **(Added 2026-07-17 night) Real payment/vouched status feed.** `payment_status` and
+   `job_active` are built and working (see PRODUCTION_CONTEXT.md Section 3), but nothing writes
+   to `payment_status` except the manual "🧪 Simulate Admin update" test control. The real
+   version needs the Admin app (not yet built at all, per Section 9's deferred list) to push a
+   status update into `pmes_production_jobs.payment_status` when someone there marks a Sales
+   Order as paid or vouched — likely a webhook Admin calls, or Admin writing directly into this
+   same Supabase project if it ends up living here too. Not investigatable yet since Admin
+   itself doesn't exist; flagged here so it's not forgotten once it does.
+
+4. **Add the real FK.** Once quotation_serial is reliably populated by the bridge (not just
+   an optional manual field), promote `pmes_production_jobs.quotation_serial` from a soft
+   reference to `references quotations(serial)`.
+
+5. **Wire `pmes_components` generation to `drawing_analyses`** instead of the manual
+   "Generate components" sheet — this is the actual cutting-optimization step Section 5
+   describes, and depends entirely on the answer from step 1.
+
+6. **Decide `board_layouts` vs `pmes_excess_materials` overlap.** ModCraft already tracks
+   board layout/utilization per quotation. Confirm whether Production's excess-material
+   tracking should read/write into `board_layouts` directly or stay a separate table that
+   references it — don't duplicate silently.
+
+None of this is started. Steps 1 and 2 are pure investigation (read-only queries against
+existing data) and are the natural next session's starting point.
+
+---
+
+## Update 2026-09-26 — bridge built (Modcraft Job Order → KEYSTONE → PMES)
+
+Most of the steps above are now done, by a different route than planned:
+
+- **Modcraft issues a mother Job Order** (`job_orders` table) at the Initial Quotation lock; it
+  becomes `ready` when the Final Quotation is client-approved.
+- **KEYSTONE's `adm_release_gate`** (Admin App) now, when releasing a ready Job Order:
+  - uses the Job Order number as `job_code` (`cutting_list_source='modcraft_conversion'`,
+    `source_file_ref='job_orders:<number>'`);
+  - creates **one `pmes_components` row per physical piece**, with PMES area/part codes
+    (MISC when unrecognised), the short label code in the new **`scan_code`** column, the piece's
+    own **`route`** (text[] of stage codes) and its details in **`spec`** (jsonb: part, name,
+    material, cut and finished size, edges, tape, bander, grain, grooving, special cut, HPL
+    order, source board);
+  - creates **one `pmes_job_stages` row per process the job needs**, in production order.
+- **This app** (backup of the previous version: `../modcraft-pmes-app.PRE-PROCESSJO-backup`):
+  - scan lookup accepts the short `scan_code` as well as `full_barcode_id`;
+  - the scan station follows each piece's own `route` when it has one (else the job route);
+  - the job page says the routes are per piece, and every stage has a **Process JO** print:
+    the pieces that go through that process only, with the columns that process needs
+    (cutting is grouped by board).
+- Job-level `route_code` stays empty for these jobs; the per-piece routes replace it.
+
+Still open: grooving has no stage type; hole details live on the mother JO only; PMES has no
+sign-in, so everything above is readable with the public key (see the Modcraft notes on PMES
+auth before adding anything sensitive).
+
+## Update 2026-09-26 (later) — sign-in, mother JO copy, Process JO template
+
+- **Sign-in required.** Google sign-in (same accounts as Modcraft). `pmes_me()` returns the
+  signed-in person only if they are an ACTIVE user in Modcraft's `public.users`; every `pmes_*`
+  table's policy is `app_current_role() is not null`; views run with `security_invoker`; anon has
+  no grants. The site address PMES is served from must be added in Supabase → Authentication →
+  URL Configuration → Redirect URLs, or sign-in bounces.
+- **`pmes_production_jobs.mother_jo`** — a copy of the Modcraft mother Job Order taken at release
+  (parts, board layouts + shelves, holes, hardware, services, `storageFolder`, `sourceKind`).
+- **`process-jo.js`** — the Process JO: pieces with 6 working-day tick columns (D1–D6) + a daily
+  log; cutting layout (board diagrams + cut sequence, other processes' pieces greyed) for
+  CUT/SCUT; edge-banding layout (red = banded edge) + tape totals for EBA/EBB/MEB; boring schedule
+  for DRL; HPL boards for HPL/CURE/MHPL; BOM summary; attached files listed from the quotation's
+  Storage folder (source file / customer cutting list / elevation, shop drawing, client order
+  attachments — quotation printouts are deliberately left out), linked with 7-day signed URLs.

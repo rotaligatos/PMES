@@ -1,0 +1,11 @@
+{
+  "name": "ModCraft PMES — Production",
+  "short_name": "PMES",
+  "description": "ModCraft Production Manufacturing Execution System",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#eef2f6",
+  "theme_color": "#12233d",
+  "orientation": "portrait-primary",
+  "icons": []
+}
