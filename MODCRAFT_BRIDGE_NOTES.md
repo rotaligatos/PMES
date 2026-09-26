@@ -330,3 +330,11 @@ sheet/sqm/pcs/kg, but the catalogue uses "pc" and "lm", so every real line arriv
 Now `pmes_norm_unit()` (pc→pcs, lm→lm, roll, set …); `pmes_job_materials.unit` allows lm/roll/set;
 an unrecognised unit is kept in the notes. Note: PMES users read MRFs only via `pmes_job_mrs()` —
 they have no direct access to `adm_material_requests`.
+
+## Update 2026-09-27 — two-person rule on the Job Order, manager's discretion
+Whoever checked a Job Order cannot approve it. A manager (or admin) may approve their own check, or
+approve an incomplete-materials JO without the supervisor step, only at their discretion when staff
+or the supervisor is absent (or they delegated) — a written reason is required and recorded
+("Manager discretion: …" in the history, `jo_manager_discretion` / `jo_discretion_reason`).
+Enforced in `pmes_jo_approve`; the review card shows the matching button. Tested by impersonation,
+rolled back: supervisor self-approval refused; manager without reason refused; with reason approved.

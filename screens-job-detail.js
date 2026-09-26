@@ -229,16 +229,23 @@ function renderJoReviewCard(job, reviews) {
     const flags = ['checked', 'not_ok', 'recommend_proceed'].includes(r.action) ? ' (details ' + (r.details_ok ? 'ok' : 'NOT ok') + ', materials ' + (r.materials_ok ? 'complete' : 'NOT complete') + m + ')' : m;
     return '<div class="small" style="padding:4px 0;border-bottom:1px solid var(--border);"><strong>' + what + '</strong>' + flags + ' — ' + who(r.by_email, r.by_name) + ', ' + fmtDate(r.at) + (r.note ? '<br>' + escapeHtml(r.note) : '') + '</div>';
   }).join('');
-  // Who may press Approve right now.
+  // Who may press Approve right now. Rule (Rommel 2026-09-27): whoever checked it may not approve
+  // it — except a manager, at their discretion, when staff or the supervisor is absent (reason
+  // required). The database enforces the same (pmes_jo_approve).
+  const me = ((State.me && State.me.email) || '').toLowerCase();
+  const selfCheck = !!job.jo_checked_by && job.jo_checked_by.toLowerCase() === me;
+  const discBtn = (label) => `<button class="btn primary sm" onclick="submitJoApprove('${job.id}',true)" title="Manager's discretion — give the reason in the note">${label}</button>`;
   let approveBtn = '';
   if (st === 'checked' && isSup) {
-    approveBtn = incomplete
-      ? (isMgr && !['supervisor'].includes(role) ? '<button class="btn primary sm" disabled title="Materials are incomplete: a supervisor approves first">Approve (supervisor first)</button>'
-                                                 : `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as supervisor</button>`)
+    if (selfCheck && !isMgr) approveBtn = '<button class="btn primary sm" disabled title="You checked it — someone else must approve">Approve (someone else)</button>';
+    else if (selfCheck) approveBtn = discBtn('Approve at manager’s discretion');
+    else if (incomplete && isMgr && role !== 'supervisor') approveBtn = discBtn('Approve at manager’s discretion (supervisor absent)');
+    else approveBtn = incomplete
+      ? `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as supervisor</button>`
       : `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve for the line</button>`;
   } else if (st === 'supervisor_ok') {
     approveBtn = isMgr && job.jo_supervisor_by !== (State.me && State.me.email)
-      ? `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as manager — send to the line</button>`
+      ? (selfCheck ? discBtn('Approve at manager’s discretion') : `<button class="btn primary sm" onclick="submitJoApprove('${job.id}')">Approve as manager — send to the line</button>`)
       : '<button class="btn primary sm" disabled title="Needs a manager (not the supervisor who approved)">Waiting for manager</button>';
   } else if (isSup) {
     approveBtn = '<button class="btn primary sm" disabled title="Staff must check it first">Approve for the line</button>';
@@ -249,7 +256,7 @@ function renderJoReviewCard(job, reviews) {
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${matBadge}<span class="small">${escapeHtml(matLine)}</span></div>
       ${st === 'returned' && job.jo_return_note ? '<div class="callout blocked" style="margin-top:8px;"><strong>Returned:</strong> ' + escapeHtml(job.jo_return_note) + '</div>' : ''}
       ${incomplete && job.jo_proceed_reason ? '<div class="callout info" style="margin-top:8px;"><strong>Proceed with incomplete materials — staff reason:</strong> ' + escapeHtml(job.jo_proceed_reason) + (job.jo_supervisor_by ? '<br>Supervisor approved: ' + escapeHtml(job.jo_supervisor_by) + ', ' + fmtDate(job.jo_supervisor_at) : '') + '</div>' : ''}
-      ${st !== 'approved' ? '<div class="callout info" style="margin-top:8px;">Nothing goes to the line until it is approved. With complete materials a supervisor approves; with incomplete materials staff may recommend proceeding, and it then needs a supervisor <strong>and</strong> a manager.</div>' : ''}
+      ${st !== 'approved' ? '<div class="callout info" style="margin-top:8px;">Nothing goes to the line until it is approved. With complete materials a supervisor approves; with incomplete materials staff may recommend proceeding, and it then needs a supervisor <strong>and</strong> a manager. Whoever checks it cannot approve it — only a manager may, at their discretion, when staff or the supervisor is absent (with a reason).</div>' : ''}
       ${canCheck && st !== 'supervisor_ok' ? `
         <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
           <label class="field-label">Staff check</label>
@@ -263,7 +270,7 @@ function renderJoReviewCard(job, reviews) {
       ${isSup && st !== 'approved' ? `
         <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
           <label class="field-label">Supervisor / manager</label>
-          <input type="text" id="joSupNote" placeholder="Note (required when returning)" />
+          <input type="text" id="joSupNote" placeholder="Note (required when returning, or when approving at your discretion)" />
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
             ${approveBtn}
             <button class="btn outline sm" onclick="submitJoReturn('${job.id}','staff')">Return to staff</button>
@@ -289,9 +296,10 @@ async function submitJoCheck(jobId) {
     toast(msg, 'success'); render();
   } catch (e) { toast(e.message, 'error'); }
 }
-async function submitJoApprove(jobId) {
+async function submitJoApprove(jobId, discretion) {
   const note = document.getElementById('joSupNote').value.trim();
-  if (!confirm('Approve this Job Order?')) return;
+  if (discretion && !note) return toast('Write the reason in the note (e.g. supervisor absent, staff on leave, delegated) — it is recorded.', 'error');
+  if (!confirm(discretion ? 'Approve at your discretion? Your reason is recorded in the history.' : 'Approve this Job Order?')) return;
   try {
     const r = await Data.joApprove(jobId, note);
     toast(r && r.status === 'supervisor_ok' ? 'Supervisor approval recorded — a manager must approve next (materials incomplete).' : 'Approved — it can now be printed and scheduled.', 'success'); render();
