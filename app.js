@@ -624,3 +624,7 @@ sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') renderSignIn(
 
 // start on load
 authGate();
+
+// Installable: a no-cache worker (see sw.js — it must never cache).
+if ('serviceWorker' in navigator && location.protocol === 'https:')
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
