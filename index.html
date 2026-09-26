@@ -116,7 +116,8 @@ p.page-sub{font-size:13px;color:var(--text-dim);margin:0 0 18px;}
   min-height:var(--tap);
 }
 .job-row:last-child{border-bottom:none;}
-.job-row:active{background:#f4f7fa;}
+.job-row:active,.job-row:hover{background:#f4f7fa;}
+#jobsList .job-row{padding-left:16px;padding-right:16px;cursor:pointer;}
 .job-row .left{display:flex;flex-direction:column;gap:3px;}
 .job-row .code{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--navy);}
 .job-row .meta{font-size:12px;color:var(--text-dim);}
@@ -436,6 +437,37 @@ textarea{min-height:80px;resize:vertical;}
   position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--amber);
 }
 .rtmo-logo{height:44px;width:auto;background:#fff;border-radius:7px;padding:2px 6px;margin-right:12px;vertical-align:middle}
+
+/* ---- Job sub-tabs ---- */
+.subtabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--border);margin:6px 0 12px;-webkit-overflow-scrolling:touch;}
+.subtabs button{background:none;border:none;border-bottom:3px solid transparent;padding:10px 14px;font:inherit;font-size:14px;font-weight:600;color:var(--text-dim);cursor:pointer;white-space:nowrap;}
+.subtabs button.on{color:var(--navy);border-bottom-color:var(--amber-2,#f0a93b);}
+.subtab-flag{display:inline-block;min-width:16px;padding:0 5px;border-radius:9px;background:var(--amber-2,#f0a93b);color:#fff;font-size:11px;line-height:16px;text-align:center;}
+/* ---- More menu ---- */
+.more-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.more-grid button{display:flex;gap:12px;align-items:center;text-align:left;background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;font:inherit;cursor:pointer;}
+.more-grid button .ic{font-size:26px;}
+.more-grid button strong{display:block;font-size:15px;color:var(--navy);}
+/* ---- Desktop: tabs across the top, under the header; phones keep them at the bottom ---- */
+@media (min-width:900px){
+  #app nav.tabbar{order:1;justify-content:flex-start;box-shadow:0 2px 6px rgba(0,0,0,.12);padding:0 12px;}
+  #app header.topbar{order:0;}
+  #app main{order:2;}
+  #app nav.tabbar button{flex:0 0 auto;flex-direction:row;gap:8px;font-size:14px;padding:12px 18px;min-height:0;border-bottom:3px solid transparent;}
+  #app nav.tabbar button.active{border-bottom-color:var(--amber-2,#f0a93b);}
+  #app nav.tabbar button .ic{font-size:16px;}
+  #app main{padding:20px 28px;}
+}
+
+/* ---- Phones: keep the header on one line ---- */
+@media (max-width:600px){
+  header.topbar{padding:10px 12px;}
+  .rtmo-logo{height:30px !important;margin-right:8px !important;padding:1px 4px !important;}
+  header.topbar .brand .mark{font-size:9px;}
+  header.topbar .brand .title{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;}
+  #connLabel{display:none;}
+  #userChip{max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;}
+}
 </style>
 </head>
 <body>
@@ -460,30 +492,12 @@ textarea{min-height:80px;resize:vertical;}
   </main>
 
   <nav class="tabbar">
-    <button class="tab-btn active" data-screen="dashboard">
-      <span class="ic">📊</span><span>Dashboard</span>
-    </button>
-    <button class="tab-btn" data-screen="jobs">
-      <span class="ic">📋</span><span>Jobs</span>
-    </button>
-    <button class="tab-btn" data-screen="intake">
-      <span class="ic">➕</span><span>New Job</span>
-    </button>
-    <button class="tab-btn" data-screen="scan">
-      <span class="ic">📷</span><span>Scan</span>
-    </button>
-    <button class="tab-btn" data-screen="schedule">
-      <span class="ic">📅</span><span>Schedule</span>
-    </button>
-    <button class="tab-btn" data-screen="excess">
-      <span class="ic">🪵</span><span>Excess</span>
-    </button>
-    <button class="tab-btn" data-screen="ie">
-      <span class="ic">📐</span><span>IE</span>
-    </button>
-    <button class="tab-btn" data-screen="settings">
-      <span class="ic">⚙️</span><span>Setup</span>
-    </button>
+    <button class="tab-btn active" data-screen="dashboard"><span class="ic">📊</span><span>Dashboard</span></button>
+    <button class="tab-btn" data-screen="jobs"><span class="ic">📋</span><span>Jobs</span></button>
+    <button class="tab-btn" data-screen="materials"><span class="ic">📦</span><span>Materials</span></button>
+    <button class="tab-btn" data-screen="scan"><span class="ic">📷</span><span>Scan</span></button>
+    <button class="tab-btn" data-screen="schedule"><span class="ic">📅</span><span>Schedule</span></button>
+    <button class="tab-btn" data-screen="more"><span class="ic">☰</span><span>More</span></button>
   </nav>
 
 </div>
@@ -499,6 +513,7 @@ textarea{min-height:80px;resize:vertical;}
 <script src="machine-illustrations.js"></script>
 <script src="app.js"></script>
 <script src="screens-dashboard.js"></script>
+<script src="screens-materials.js"></script>
 <script src="screens-jobs.js"></script>
 <script src="screens-job-detail.js"></script>
 <script src="screens-scan.js"></script>

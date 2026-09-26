@@ -470,16 +470,39 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   });
 });
 
-function goToJob(id) {
+function goToJob(id, tab) {
+  // A job page belongs under Jobs, whichever screen it was opened from.
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === 'jobs'));
   State.screen = 'jobDetail';
   State.currentJobId = id;
+  State.jobTabNext = tab || null;
   render();
 }
 
+// Screens reached from the More menu light up the More tab.
+const MORE_SCREENS = ['intake', 'excess', 'ie', 'settings'];
 function goToScreen(name) {
-  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === name));
+  const tab = MORE_SCREENS.includes(name) ? 'more' : name;
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === tab));
   State.screen = name;
+  State.currentJobId = null;
   render();
+}
+// What the More menu offers this person (Rommel 2026-09-27: IE and Setup are for managers).
+function moreItems() {
+  const acting = !!(State.me && State.me.acting_for);
+  return [
+    ['intake', '➕', 'New Job', 'Make a job by hand (jobs normally come from KEYSTONE)', pmesCan('supervisor')],
+    ['excess', '🪵', 'Excess material', 'Offcuts and leftover stock', pmesCan('supervisor')],
+    ['ie', '📐', 'Industrial Engineering', 'Capacity, standards, line balance', pmesCan('manager')],
+    ['settings', '⚙️', 'Setup', 'Users, delegation, routes and lists', pmesCan('manager') || acting],
+  ].filter((x) => x[4]);
+}
+function renderMore(main) {
+  const items = moreItems();
+  main.innerHTML = items.length
+    ? `<div class="more-grid">${items.map(([k, ic, t, d]) => `<button onclick="goToScreen('${k}')"><span class="ic">${ic}</span><span><strong>${t}</strong><span class="small">${d}</span></span></button>`).join('')}</div>`
+    : '<div class="empty"><p>Nothing else for your role.</p></div>';
 }
 
 /* --------------------------- Router --------------------------- */
@@ -525,7 +548,16 @@ async function render() {
       break;
     case 'settings':
       title.textContent = 'Setup';
+      if (!(pmesCan('manager') || (State.me && State.me.acting_for))) { main.innerHTML = '<div class="callout blocked">Setup is for managers and admins.</div>'; break; }
       await renderSettings(main);
+      break;
+    case 'materials':
+      title.textContent = 'Materials';
+      await renderMaterials(main);
+      break;
+    case 'more':
+      title.textContent = 'More';
+      renderMore(main);
       break;
     default:
       main.innerHTML = '<div class="empty"><p>Unknown screen.</p></div>';
@@ -639,7 +671,8 @@ function pmesStageAllowed(code) {
   return !st.length || st.includes(code);
 }
 function applyRoleToNav() {
-  const hide = { intake: !pmesCan('supervisor') };
+  const role = (State.me && State.me.role) || '';
+  const hide = { materials: role === 'operator', more: !moreItems().length };
   document.querySelectorAll('.tab-btn').forEach((b) => {
     b.style.display = hide[b.dataset.screen] ? 'none' : '';
   });
@@ -699,10 +732,10 @@ async function authGate() {
   State.me = me;
   document.querySelector('nav.tabbar').style.display = '';
   applyRoleToNav();
-  if (!pmesCan('supervisor')) {
-    State.screen = 'scan';
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === 'scan'));
-  }
+  // Each role lands where they work: operators on Scan, the materials person on Materials.
+  const home = me.role === 'operator' ? 'scan' : me.role === 'materials' ? 'materials' : 'dashboard';
+  State.screen = home;
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();
   bootstrap();
 }

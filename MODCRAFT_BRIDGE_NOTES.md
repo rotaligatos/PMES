@@ -350,3 +350,16 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 
 ## Update 2026-09-27 — Dashboard is the home screen; RTmo logo
 `pmes_dashboard(company)` (one call): counts of JOs to check / to approve / to manager / returned, materials to receive, output to confirm, board requests, in production, handed off (30 days), plus every open job with review + material status and progress (confirmed vs planned). Tiles that are the signed-in person's to act on are marked. Plant filter defaults to the user's company (`pmes_me().company`). Operators still open on Scan. RTmo logo top right.
+
+## Update 2026-09-27 — layout rework (Rommel: "not optimized and user friendly")
+- Main tabs: Dashboard · Jobs · Materials · Scan · Schedule · More. More holds New Job and Excess
+  (supervisor+), IE and Setup (manager+, Setup also for a delegate). On screens ≥900px the tabs sit under
+  the header; phones keep them at the bottom. Landing: operators → Scan, materials → Materials, others → Dashboard.
+- **Materials** (new, `pmes_materials_inbox`): every open job's MRFs with Receive in place, boards still
+  to inspect, extra-board requests; "Needs action only" filter; plant filter shared with the Dashboard.
+- **Job page** in sub-tabs: Overview (JO review, progress, notes) · Materials (the MRF; the hand-kept list
+  only for jobs with no MRF — no more showing materials twice) · Cutting (Process JO for CUT/SCUT, board
+  inspection, cutting plan, extra boards) · Production (route, processes, output) · Parts · Packing.
+  `goToJob(id, tab)` opens a given sub-tab. Tabs carry a dot when something waits.
+- Payment status card + its test simulator removed: every job in PMES was released paid or vouched, so it
+  is now a tag by the job code. Jobs list: duplicate stat boxes removed, client/project shown and searchable.

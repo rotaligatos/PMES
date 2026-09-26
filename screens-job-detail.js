@@ -1,8 +1,16 @@
-/* --------------------------- 5. Screen: Job detail --------------------------- */
+/* --------------------------- 5. Screen: Job detail ---------------------------
+   One job, split into sub-tabs (Rommel 2026-09-27: the single long page was hard to use) so each
+   person opens the part they work on: Overview · Materials · Cutting · Production · Parts · Packing.
+   Data is loaded once per job; switching sub-tab redraws from it. */
+
+const JOB_TABS = [
+  ['overview', 'Overview'], ['materials', 'Materials'], ['cutting', 'Cutting'],
+  ['production', 'Production'], ['parts', 'Parts'], ['packing', 'Packing'],
+];
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
-  let job, stages, components, materials, materialSummary, joReviews = [], outputs = [], machines = [];
+  let job, stages, components, materials, materialSummary, joReviews = [], outputs = [], machines = [], readiness = [];
   try {
     [job, stages, components, materials, materialSummary, joReviews, outputs, machines] = await Promise.all([
       Data.getJob(jobId), Data.listJobStages(jobId), Data.listComponents(jobId),
@@ -11,185 +19,148 @@ async function renderJobDetail(main) {
     ]);
     State.jobMRs = await Data.listJobMRs(jobId).catch(() => []);
     State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
+    readiness = await Data.getJobMaterialReadiness(jobId).catch(() => []);
   } catch (e) {
     main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load job.</p></div>`;
     return;
   }
+  const materialsReady = materialSummary ? materialSummary.materials_ready : false;
+  State.jd = {
+    job, stages, components, materials, readiness, joReviews, outputs, machines, materialsReady,
+    route: State.routeMappings.find((r) => r.code === job.route_code),
+    canCut: job.job_active && materialsReady,
+  };
+  if (State.jobTabNext) State.jobTab = State.jobTabNext;
+  else if (State.jdJobId !== jobId) State.jobTab = 'overview';
+  State.jdJobId = jobId; State.jobTabNext = null;
 
   document.getElementById('screenTitle').textContent = job.job_code;
-  const route = State.routeMappings.find((r) => r.code === job.route_code);
-  const materialsReady = materialSummary ? materialSummary.materials_ready : false;
-  const canCut = job.job_active && materialsReady;
-
-  // fetch per-line readiness for display
-  let readiness = [];
-  try { readiness = await Data.getJobMaterialReadiness(jobId); } catch (e) { /* non-fatal */ }
-
-  const paymentBadge = {
-    not_yet_paid: '<span class="badge red">Not yet paid</span>',
-    paid: '<span class="badge green">Paid</span>',
-    vouched: '<span class="badge blue">Vouched</span>',
-  }[job.payment_status] || '<span class="badge gray">Unknown</span>';
-
+  const mo = job.mother_jo || {};
+  const payTag = { paid: '<span class="badge green" title="KEYSTONE released it on payment">Paid</span>',
+    vouched: '<span class="badge blue" title="KEYSTONE released it on a vouch (credit)">Vouched</span>' }[job.payment_status] || '';
   main.innerHTML = `
-    <div class="flex-between" style="margin-bottom:10px;">
+    <div class="flex-between" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;">
       <button class="btn outline sm" onclick="goToScreen('jobs')">← All jobs</button>
       <span>${badgeForJoReview(job)} ${badgeForJobStatus(job.status)}</span>
     </div>
-
-    <h1 class="page-title" style="display:flex;align-items:center;gap:10px;">
-      <span class="mono">${escapeHtml(job.job_code)}</span> ${badgeForDest(job.destination_company)}
+    <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="mono">${escapeHtml(job.job_code)}</span> ${badgeForDest(job.destination_company)} ${payTag}
     </h1>
-    <p class="page-sub">${job.quotation_serial ? 'Quotation ref: ' + escapeHtml(job.quotation_serial) : 'No quotation reference'} · Created ${fmtDate(job.created_at)}</p>
+    <p class="page-sub">${escapeHtml(mo.client || '')}${mo.project ? ' — ' + escapeHtml(mo.project) : ''}${mo.client || mo.project ? ' · ' : ''}${job.quotation_serial ? 'Quotation ' + escapeHtml(job.quotation_serial) : 'No quotation reference'} · Released ${fmtDate(job.created_at)}</p>
+    ${!job.job_active ? `<div class="callout blocked"><strong>Inactive.</strong> KEYSTONE has not released this job (payment not met or not vouched).</div>` : ''}
+    <div class="subtabs" id="jdTabs"></div>
+    <div id="jdBody"></div>`;
+  drawJobTab();
+}
 
-    ${!job.job_active ? `
-      <div class="callout blocked">
-        <strong>Inactive.</strong> This job is grayed out until the Admin app reports the linked
-        quotation as paid or vouched. Production does not confirm payment itself — it only reacts
-        to that status once the real feed exists (see MODCRAFT_BRIDGE_NOTES.md).
-      </div>
-    ` : ''}
+function setJobTab(t) { State.jobTab = t; drawJobTab(); }
 
-    ${renderJoReviewCard(job, joReviews)}
-    ${renderMRCard(job, State.jobMRs || [])}
-    <div id="boardsBlock"></div>
+function _jobTabFlag(t) {
+  const d = State.jd, j = d.job, ms = State.jobMaterialState || { state: 'no_mrf' };
+  if (t === 'overview') return ['received', 'checked', 'supervisor_ok', 'returned'].includes(j.jo_review_status || 'received') ? '•' : '';
+  if (t === 'materials') return ms.state === 'complete' || ms.state === 'no_mrf' ? '' : '•';
+  if (t === 'production') return d.outputs.some((o) => o.status === 'entered') ? '•' : '';
+  if (t === 'parts') return d.components.length ? String(d.components.length) : '';
+  return '';
+}
 
-    <div class="card">
-      <div class="flex-between">
-        <h2 class="mb-0">Payment status</h2>
-        ${paymentBadge}
-      </div>
-      <p class="small" style="margin-top:8px;">
-        Received from the Admin app once that feed is built — Production never sets this in real
-        usage. ${job.payment_status_updated_at ? 'Last updated ' + fmtDate(job.payment_status_updated_at) + '.' : ''}
-      </p>
+function drawJobTab() {
+  const d = State.jd; if (!d) return;
+  const tabs = document.getElementById('jdTabs'), body = document.getElementById('jdBody');
+  if (!tabs || !body) return;
+  tabs.innerHTML = JOB_TABS.map(([k, l]) => {
+    const f = _jobTabFlag(k);
+    return `<button class="${State.jobTab === k ? 'on' : ''}" onclick="setJobTab('${k}')">${l}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
+  }).join('');
+  const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady } = d;
+  const t = State.jobTab;
 
-      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);">
-        <p class="small" style="font-weight:700;color:var(--amber);margin-bottom:8px;">
-          🧪 Test-only — simulates an incoming Admin app update
-        </p>
-        <select id="paymentStatusTestSelect">
-          <option value="not_yet_paid" ${job.payment_status === 'not_yet_paid' ? 'selected' : ''}>Not yet paid</option>
-          <option value="paid" ${job.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
-          <option value="vouched" ${job.payment_status === 'vouched' ? 'selected' : ''}>Vouched</option>
-        </select>
-        <button class="btn outline sm" style="margin-top:8px;" onclick="simulatePaymentUpdate('${job.id}')">Simulate Admin update</button>
-      </div>
-    </div>
+  if (t === 'overview') {
+    const done = stages.filter((s) => s.status === 'complete').length;
+    body.innerHTML = `
+      ${renderJoReviewCard(job, joReviews)}
+      ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
+        <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Output</th></tr></thead><tbody>
+        ${stages.map((s) => { const st = State.stageTypes.find((x) => x.code === s.stage_code);
+          return `<tr><td>${st ? escapeHtml(st.label) : s.stage_code}</td><td>${badgeForStageStatus(s.status)}</td><td class="small">${_outputLine(s, components, outputs, job) || '—'}</td></tr>`; }).join('')}
+        </tbody></table>
+        ${joApproved(job) ? '<button class="btn outline sm" style="margin-top:8px;" onclick="setJobTab(\'production\')">Go to Production →</button>' : ''}</div>` : ''}
+      <div class="card"><h2>Job notes</h2><p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p></div>`;
+  }
 
-    <div class="card">
-      <div class="flex-between">
-        <h2 class="mb-0">Materials required &amp; received</h2>
-        ${materialsReady ? '<span class="badge green">Ready for cutting</span>' :
-          (materials.length ? '<span class="badge amber">Awaiting materials</span>' : '<span class="badge gray">Not specified</span>')}
-      </div>
-
-      ${!job.job_active ? `<div class="callout blocked" style="margin-top:10px;">Locked until this job is activated by a paid/vouched payment status above.</div>` : `
+  else if (t === 'materials') {
+    // One place for this job's materials: the MRF from KEYSTONE when there is one; the hand-kept list
+    // only for jobs made by hand (no MRF) — showing both repeated the same materials twice.
+    const mrs = State.jobMRs || [];
+    body.innerHTML = mrs.length ? `<div class="card"><h2>Material requests (MRF)</h2>
+        <p class="small">What KEYSTONE authorized for this job, what the warehouse processed, and what arrived. The materials person confirms receipt here or on the Materials tab.</p>
+        ${renderMRBlocks(mrs)}</div>`
+      : `<div class="card"><div class="flex-between"><h2 class="mb-0">Materials required &amp; received</h2>
+          ${materialsReady ? '<span class="badge green">Ready for cutting</span>' : (materials.length ? '<span class="badge amber">Awaiting materials</span>' : '<span class="badge gray">Not specified</span>')}</div>
+        <p class="small" style="margin-top:6px;">This job has no MRF from KEYSTONE, so its materials are kept here by hand.</p>
         ${materials.length ? materials.map((m) => {
           const r = readiness.find((x) => x.job_material_id === m.id);
-          const recv = r ? Number(r.qty_received) : 0;
-          const req = Number(m.qty_required);
-          const pct = Math.min(100, Math.round((recv / req) * 100));
-          return `
-            <div style="padding:12px 0;border-bottom:1px solid var(--border);">
-              <div class="flex-between">
-                <div>
-                  <div style="font-weight:700;font-size:14px;">${escapeHtml(m.material)}${m.color ? ' · ' + escapeHtml(m.color) : ''}${m.thickness_mm ? ' · ' + m.thickness_mm + 'mm' : ''}</div>
-                  <div class="small">${recv} / ${req} ${escapeHtml(m.unit)} received${m.sourcing ? ' · ' + m.sourcing.replace('_',' ') : ''}</div>
-                </div>
-                ${r && r.line_fulfilled ? '<span class="badge green">Complete</span>' : '<span class="badge amber">Partial</span>'}
-              </div>
-              <div style="background:#e4e9ee;border-radius:4px;height:6px;margin-top:8px;overflow:hidden;">
-                <div style="background:${r && r.line_fulfilled ? 'var(--green)' : 'var(--amber)'};height:100%;width:${pct}%;"></div>
-              </div>
-              <button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button>
-            </div>
-          `;
-        }).join('') : `<p class="small" style="margin-top:8px;">No materials specified yet for this job.</p>`}
+          const recv = r ? Number(r.qty_received) : 0, req = Number(m.qty_required), pct = Math.min(100, Math.round((recv / req) * 100));
+          return `<div style="padding:12px 0;border-bottom:1px solid var(--border);">
+            <div class="flex-between"><div><div style="font-weight:700;font-size:14px;">${escapeHtml(m.material)}${m.color ? ' · ' + escapeHtml(m.color) : ''}${m.thickness_mm ? ' · ' + m.thickness_mm + 'mm' : ''}</div>
+              <div class="small">${recv} / ${req} ${escapeHtml(m.unit)} received${m.sourcing ? ' · ' + m.sourcing.replace('_', ' ') : ''}</div></div>
+              ${r && r.line_fulfilled ? '<span class="badge green">Complete</span>' : '<span class="badge amber">Partial</span>'}</div>
+            <div style="background:#e4e9ee;border-radius:4px;height:6px;margin-top:8px;overflow:hidden;"><div style="background:${r && r.line_fulfilled ? 'var(--green)' : 'var(--amber)'};height:100%;width:${pct}%;"></div></div>
+            <button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button></div>`;
+        }).join('') : '<p class="small" style="margin-top:8px;">No materials specified yet for this job.</p>'}
+        <button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button></div>`;
+  }
 
-        <button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button>
-      `}
+  else if (t === 'cutting') {
+    const cutStages = stages.filter((s) => ['CUT', 'SCUT'].includes(s.stage_code));
+    body.innerHTML = `
+      ${cutStages.length && components.length && joApproved(job) ? `<div class="card"><h2>Print for the saw</h2><div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${cutStages.map((s) => `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')">Process JO — ${s.stage_code} (${componentsForStage(components, s.stage_code, job).length})</button>`).join('')}</div></div>` : ''}
+      <div id="boardsBlock"><div class="card"><p class="small">Loading boards…</p></div></div>`;
+    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'));
+    else document.getElementById('boardsBlock').innerHTML = '<div class="card"><p class="small">No cutting layout on this job — it did not come from a Modcraft cutting list.</p></div>';
+  }
 
-      ${!canCut ? `<div class="callout blocked" style="margin-top:14px;">Cutting/optimization is blocked until this job is active (paid/vouched) <strong>and</strong> every required material line is fully received.</div>` : ''}
-    </div>
-
-    <div class="card">
-      <h2>Route</h2>
-      ${route ? `
-        <p class="small">${escapeHtml(route.label)}</p>
-        <div class="route-flow">
-          ${route.stage_sequence.map((code, i) => {
-            const st = stages.find((s) => s.sequence_index === i);
+  else if (t === 'production') {
+    body.innerHTML = `
+      <div class="card"><h2>Route</h2>
+      ${route ? `<p class="small">${escapeHtml(route.label)}</p><div class="route-flow">
+          ${route.stage_sequence.map((code, i) => { const st = stages.find((s) => s.sequence_index === i);
             const cls = st && st.status === 'complete' ? 'done' : (st && (st.status === 'in_progress' || st.status === 'queued') ? 'current' : '');
-            return `<span class="route-step ${cls}">${code}</span>` + (i < route.stage_sequence.length - 1 ? '<span class="route-arrow">→</span>' : '');
-          }).join('')}
-        </div>
-      ` : (stages.length && components.some((c) => Array.isArray(c.route) && c.route.length)) ? `
-        <p class="small">Per-piece routes from Modcraft ${escapeHtml(String(job.source_file_ref || '').replace(/^job_orders:/, 'Job Order '))}. Each piece follows its own route; the stages below are every process this job needs.</p>
-        <div class="route-flow">${stages.map((s, i) => `<span class="route-step">${s.stage_code}</span>` + (i < stages.length - 1 ? '<span class="route-arrow">→</span>' : '')).join('')}</div>
-      ` : `<p class="small">No route assigned yet.</p>
-        <select id="routeAssignSelect">
-          <option value="">— Select route —</option>
-          ${State.routeMappings.map((r) => `<option value="${r.code}">${escapeHtml(r.label)}</option>`).join('')}
-        </select>
-        <button class="btn secondary sm" style="margin-top:10px;" onclick="assignRoute('${job.id}')">Assign route</button>
-      `}
-    </div>
-
-    ${stages.length ? `
-      <div class="card">
-        <h2>Stage execution</h2>
-        ${stages.map((s, idx) => {
-          const stageType = State.stageTypes.find((t) => t.code === s.stage_code);
+            return `<span class="route-step ${cls}">${code}</span>` + (i < route.stage_sequence.length - 1 ? '<span class="route-arrow">→</span>' : ''); }).join('')}</div>`
+        : (stages.length && components.some((c) => Array.isArray(c.route) && c.route.length)) ? `
+          <p class="small">Per-piece routes from Modcraft ${escapeHtml(String(job.source_file_ref || '').replace(/^job_orders:/, 'Job Order '))}. Each piece follows its own route; below is every process this job needs.</p>
+          <div class="route-flow">${stages.map((s, i) => `<span class="route-step">${s.stage_code}</span>` + (i < stages.length - 1 ? '<span class="route-arrow">→</span>' : '')).join('')}</div>`
+        : `<p class="small">No route assigned yet.</p><select id="routeAssignSelect"><option value="">— Select route —</option>
+          ${State.routeMappings.map((r) => `<option value="${r.code}">${escapeHtml(r.label)}</option>`).join('')}</select>
+          <button class="btn secondary sm" style="margin-top:10px;" onclick="assignRoute('${job.id}')">Assign route</button>`}
+      </div>
+      ${!joApproved(job) ? '<div class="callout info">Nothing can be logged until the Job Order is approved (Overview tab).</div>' : ''}
+      ${stages.length ? `<div class="card"><h2>Processes</h2>
+        ${stages.map((s, idx) => { const stageType = State.stageTypes.find((x) => x.code === s.stage_code);
           const cls = s.status === 'complete' ? 'complete' : s.status === 'delayed' ? 'delayed' : (s.status === 'in_progress' || s.status === 'queued') ? 'current' : '';
-          return `
-          <div class="stage-item ${cls}">
-            <div class="stage-num">${idx + 1}</div>
-            <div class="stage-body">
+          return `<div class="stage-item ${cls}"><div class="stage-num">${idx + 1}</div><div class="stage-body">
               <div class="stage-name">${stageType ? escapeHtml(stageType.label) : s.stage_code}</div>
-              <div class="stage-meta">
-                ${badgeForStageStatus(s.status)}
-                ${s.operator ? ' · ' + escapeHtml(s.operator) : ''}
-                ${s.delay_flag ? ' · ⚠ ' + escapeHtml(s.delay_reason || 'delayed') : ''}
-                ${_outputLine(s, components, outputs, job)}
-              </div>
-            </div>
+              <div class="stage-meta">${badgeForStageStatus(s.status)}${s.operator ? ' · ' + escapeHtml(s.operator) : ''}${s.delay_flag ? ' · ⚠ ' + escapeHtml(s.delay_reason || 'delayed') : ''}${_outputLine(s, components, outputs, job)}</div></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
               ${components.length && joApproved(job) ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
               ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-    ` : ''}
+            </div></div>`; }).join('')}</div>` : ''}
+      ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}`;
+  }
 
-    ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}
+  else if (t === 'parts') {
+    body.innerHTML = `<div class="card"><div class="flex-between"><h2 class="mb-0">Parts ${components.length ? '(' + components.length + ')' : ''}</h2>
+        ${canCut && stages.length > 0 && !components.length ? `<button class="btn secondary sm" onclick="openGenerateComponentsSheet('${job.id}')">+ Generate</button>` : ''}</div>
+      ${components.length ? renderComponentsTable(components)
+        : `<p class="small" style="margin-top:8px;">${job.mother_jo ? 'No parts yet.' : !canCut ? 'Parts are created during cutting optimization — once the job is active and its materials are ready.' : !stages.length ? 'Assign a route before generating parts.' : 'No parts yet. Tap “+ Generate”.'}</p>`}</div>`;
+  }
 
-    <div class="card">
-      <div class="flex-between">
-        <h2 class="mb-0">Components ${components.length ? '(' + components.length + ')' : ''}</h2>
-        ${canCut && stages.length > 0 ? `<button class="btn secondary sm" onclick="openGenerateComponentsSheet('${job.id}')">+ Generate</button>` : ''}
-      </div>
-      ${!canCut ? `<p class="small" style="margin-top:8px;">Component ID assignment happens during cutting optimization — blocked until this job is active and materials are ready.</p>` :
-        (!stages.length ? `<p class="small" style="margin-top:8px;">Assign a route before generating components.</p>` : '')}
-      ${components.length ? renderComponentsTable(components) : (canCut && stages.length ? `<p class="small" style="margin-top:8px;">No components yet. Tap "+ Generate" to run cutting optimization for this job.</p>` : '')}
-    </div>
-
-    ${components.length ? `
-      <div class="card">
-        <h2>Packing &amp; RTMS handoff</h2>
-        <div id="packingBlock">Loading…</div>
-      </div>
-    ` : ''}
-
-    <div class="card">
-      <h2>Job notes</h2>
-      <p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p>
-    </div>
-  `;
-
-  if (components.length) renderPackingBlock(job, components);
-  renderBoardsCards(job, document.getElementById('boardsBlock'));
+  else if (t === 'packing') {
+    body.innerHTML = components.length ? '<div class="card"><h2>Packing &amp; hand-off</h2><div id="packingBlock">Loading…</div></div>'
+      : '<div class="card"><p class="small">Packing starts once the job has parts.</p></div>';
+    if (components.length) renderPackingBlock(job, components);
+  }
 }
 
 /* ---- Job Order review gate (Piece 1) ------------------------------------------------------
@@ -405,11 +376,15 @@ async function deleteOutput(id) {
    job's materials above, so the JO check can see it. */
 function renderMRCard(job, mrs) {
   if (!mrs.length) return `<div class="card"><h2>Material requests (MRF)</h2><p class="small">No MRF for this job yet — KEYSTONE issues it with the Job Order at release.</p></div>`;
+  return `<div class="card"><h2>Material requests (MRF)</h2>${renderMRBlocks(mrs)}</div>`;
+}
+// The MRF blocks themselves (lines + receive form). Used on the job page and the Materials page.
+function renderMRBlocks(mrs) {
   const canReceive = (State.me && State.me.role === 'materials') || pmesCan('supervisor');
   const pill = (st) => { const c = { authorized: 'blue', partially_issued: 'amber', issued: 'amber', partially_received: 'amber', received: 'green', closed: 'gray', cancelled: 'red' }[st] || 'gray';
     const t = { authorized: 'Waiting for the warehouse', partially_issued: 'Warehouse partly processed', issued: 'Processed — confirm receipt', partially_received: 'Partly received', received: 'Received' }[st] || st;
     return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
-  return `<div class="card"><h2>Material requests (MRF)</h2>${mrs.map((m) => {
+  return mrs.map((m) => {
     const open = canReceive && ['partially_issued', 'issued', 'partially_received'].includes(m.status);
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:10px;">
       <div class="flex-between"><strong class="mono">${escapeHtml(m.mr_no || '')}</strong> <span class="small">${m.stream === 'purchase' ? 'purchase (outsource / made-to-order)' : 'warehouse'}</span> ${pill(m.status)}</div>
@@ -422,7 +397,7 @@ function renderMRCard(job, mrs) {
         <button class="btn outline sm" onclick="document.querySelectorAll('.mrRecv[data-mr=&quot;${m.id}&quot;]').forEach((i)=>{i.value=i.max;})">All processed arrived</button>
         <input type="text" id="mrNote_${m.id}" placeholder="Note (damage, shortage)" style="flex:1;min-width:160px;">
         <button class="btn primary sm" onclick="submitMRReceive('${m.id}')">Confirm received</button></div>` : ''}
-    </div>`; }).join('')}</div>`;
+    </div>`; }).join('');
 }
 async function submitMRReceive(mrId) {
   const lines = [...document.querySelectorAll('.mrRecv[data-mr="' + mrId + '"]')].map((i) => ({ id: i.dataset.line, qty: i.value === '' ? 0 : Number(i.value) }));
@@ -449,17 +424,6 @@ function renderComponentsTable(components) {
     </table>
     ${components.length > 12 ? `<p class="small" style="margin-top:6px;">+ ${components.length - 12} more</p>` : ''}
   `;
-}
-
-async function simulatePaymentUpdate(jobId) {
-  const newStatus = document.getElementById('paymentStatusTestSelect').value;
-  try {
-    await Data.simulatePaymentStatus(jobId, newStatus);
-    toast(`Simulated: payment status set to "${newStatus.replace('_', ' ')}."`, 'success');
-    render();
-  } catch (e) {
-    toast('Could not update: ' + e.message, 'error');
-  }
 }
 
 function openAddJobMaterialSheet(jobId) {

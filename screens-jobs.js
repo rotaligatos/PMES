@@ -4,9 +4,8 @@ async function renderJobsList(main) {
   main.innerHTML = `
     <div class="searchbar">
       <span>🔍</span>
-      <input type="text" id="jobSearch" placeholder="Search job code or quotation ref…" />
+      <input type="text" id="jobSearch" placeholder="Search job code, quotation, client or project…" />
     </div>
-    <div id="jobsStats" class="stat-grid"></div>
     <div class="card" id="jobsCard" style="padding:0;">
       <div style="padding:16px 16px 0;">
         <h2 style="margin-bottom:2px;">All jobs</h2>
@@ -23,29 +22,17 @@ async function renderJobsList(main) {
     return;
   }
 
-  const stats = document.getElementById('jobsStats');
-  const inProd = jobs.filter((j) => j.status === 'in_production').length;
-  const waiting = jobs.filter((j) => j.payment_status === 'not_yet_paid').length;
-  const toReview = jobs.filter((j) => j.jo_review_status && j.jo_review_status !== 'approved').length;
-  stats.innerHTML = `
-    <div class="stat-box"><div class="num">${jobs.length}</div><div class="lbl">Total jobs</div></div>
-    <div class="stat-box"><div class="num">${inProd}</div><div class="lbl">In production</div></div>
-    <div class="stat-box"><div class="num">${waiting}</div><div class="lbl">Payment pending</div></div>
-    <div class="stat-box"><div class="num">${jobs.filter(j=>j.status==='handed_off').length}</div><div class="lbl">Handed off</div></div>
-    <div class="stat-box"><div class="num">${toReview}</div><div class="lbl">JO to review</div></div>
-  `;
-
   function paint(list) {
     const box = document.getElementById('jobsList');
     if (!list.length) {
-      box.innerHTML = `<div class="empty"><div class="ic">📭</div><p>No jobs yet.</p><p>Tap "New Job" below to create one.</p></div>`;
+      box.innerHTML = `<div class="empty"><div class="ic">📭</div><p>No jobs yet.</p><p>Jobs arrive here when KEYSTONE releases a Job Order.</p></div>`;
       return;
     }
     box.innerHTML = list.map((j) => `
       <div class="job-row" style="${j.job_active ? '' : 'opacity:0.55;'}" onclick="goToJob('${j.id}')">
         <div class="left">
           <span class="code">${escapeHtml(j.job_code)}</span>
-          <span class="meta">${j.quotation_serial ? 'Quotation ' + escapeHtml(j.quotation_serial) : 'No quotation ref'} · ${fmtDate(j.created_at)}</span>
+          <span class="meta">${j.mother_jo && j.mother_jo.client ? escapeHtml(j.mother_jo.client) + (j.mother_jo.project ? ' — ' + escapeHtml(j.mother_jo.project) : '') + ' · ' : ''}${j.quotation_serial ? 'Quotation ' + escapeHtml(j.quotation_serial) : 'No quotation ref'} · ${fmtDate(j.created_at)}</span>
         </div>
         <div class="right">
           ${!j.job_active ? '<span class="badge gray">Inactive</span>' : ''}
@@ -63,8 +50,8 @@ async function renderJobsList(main) {
     const q = e.target.value.trim().toLowerCase();
     if (!q) return paint(jobs);
     paint(jobs.filter((j) =>
-      j.job_code.toLowerCase().includes(q) ||
-      (j.quotation_serial || '').toLowerCase().includes(q)
+      [j.job_code, j.quotation_serial, j.mother_jo && j.mother_jo.client, j.mother_jo && j.mother_jo.project]
+        .join(' ').toLowerCase().includes(q)
     ));
   });
 }
