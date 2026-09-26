@@ -33,7 +33,7 @@ function _pjoPartNo(c) {
 const _pjoE = (v) => escapeHtml(v == null ? '' : String(v));
 
 // ── Board diagram + cut sequence (same geometry and rules as Modcraft's cut sheet) ──────────
-function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn) {
+function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
   const scale = maxPx / Math.max(boardW, boardH);
   const pw = Math.round(boardW * scale), ph = Math.round(boardH * scale);
   const fs = Math.round(10 / scale), sw = Math.max(1, Math.round(1.4 / scale));
@@ -48,6 +48,7 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn) {
     else if (pc.ref != null && pc.w > fs * 2.2 && pc.h > fs * 1.5)
       r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle" fill="#222">P${pc.ref + 1}</text>`;
   });
+  (defects || []).forEach((d) => { r += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" fill="rgba(220,40,40,.35)" stroke="#c0271d" stroke-width="${sw * 1.5}"></rect>`; });
   return `<svg width="${pw}" height="${ph}" viewBox="0 0 ${boardW} ${boardH}" style="background:#fff;border:2px solid #8a7a63">${r}</svg>`;
 }
 function _pjoCutSequence(bm, bi) {
@@ -88,8 +89,8 @@ function _pjoCuttingLayout(mjo, refs) {
       if (!lay.some((p) => refs.has(p.ref))) return;
       const seq = _pjoCutSequence(bm, bi);
       const which = grp.length > 1 ? `Boards ${grp.map((b) => b + 1).join(', ')} (×${grp.length} identical)` : `Board ${bi + 1}`;
-      h += `<div class="blk"><h4>${_pjoE(title)} — ${which} of ${bm.layout.length} · ${bm.boardW}×${bm.boardH}mm · kerf ${_pjoE(bm.kerf)}mm</h4>`
-        + `<div class="two"><div>${_pjoBoardSvg(lay, bm.boardW, bm.boardH, 330, refs)}</div>`
+      h += `<div class="blk"><h4>${_pjoE(title)} — ${which} of ${bm.layout.length}${mjo._planVersion ? ' · adopted plan v' + mjo._planVersion + (bm.defects && (bm.defects[bi] || []).length ? ' · defects shown red, do not cut' : '') : ''} · ${bm.boardW}×${bm.boardH}mm · kerf ${_pjoE(bm.kerf)}mm</h4>`
+        + `<div class="two"><div>${_pjoBoardSvg(lay, bm.boardW, bm.boardH, 330, refs, bm.defects && bm.defects[bi])}</div>`
         + `<div><ol>${seq.steps.map((s) => '<li>' + _pjoE(s) + '</li>').join('')}</ol><p><b>Cutting length:</b> ${seq.totalM} m per board</p></div></div></div>`;
     });
     if (bm.oversizedCount) h += `<p class="warn">⚠ ${bm.oversizedCount} piece(s) of ${_pjoE(title)} are too big for the board and are not on any layout: ${(bm.oversizedRefs || []).map((x) => 'P' + (x + 1)).join(', ')}</p>`;
@@ -198,7 +199,13 @@ async function printProcessJO(jobId, stageCode) {
   const st = State.stageTypes.find((t) => t.code === stageCode);
   const label = st ? st.label : stageCode;
   const list = componentsForStage(components, stageCode, job).sort((a, b) => _pjoPartNo(a) - _pjoPartNo(b) || (a.seq_number - b.seq_number));
-  const mjo = job.mother_jo || null;
+  // The layout the line cuts from: the adopted cutting plan (real boards, defects avoided) if a
+  // supervisor adopted one, else the Modcraft layout the quotation was based on.
+  let mjo = job.mother_jo || null;
+  try {
+    const ap = mjo ? await BoardsData.adoptedPlan(jobId) : null;
+    if (ap && ap.result && Array.isArray(ap.result.groups)) mjo = Object.assign({}, mjo, { boards: ap.result.groups, _planVersion: ap.version });
+  } catch (e) { /* keep the Modcraft layout */ }
   const refs = new Set(list.map((c) => _pjoPartNo(c) - 1));
   const partNos = new Set(list.map((c) => c.spec && c.spec.part).filter(Boolean));
   const parts = mjo ? (mjo.parts || []).filter((p) => partNos.has(p.p)) : [];

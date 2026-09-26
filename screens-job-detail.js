@@ -53,6 +53,7 @@ async function renderJobDetail(main) {
 
     ${renderJoReviewCard(job, joReviews)}
     ${renderMRCard(job, State.jobMRs || [])}
+    <div id="boardsBlock"></div>
 
     <div class="card">
       <div class="flex-between">
@@ -189,6 +190,7 @@ async function renderJobDetail(main) {
   `;
 
   if (components.length) renderPackingBlock(job, components);
+  renderBoardsCards(job, document.getElementById('boardsBlock'));
 }
 
 /* ---- Job Order review gate (Piece 1) ------------------------------------------------------

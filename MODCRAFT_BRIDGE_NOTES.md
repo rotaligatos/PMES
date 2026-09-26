@@ -291,3 +291,31 @@ incomplete materials, with the approval of a supervisor AND a manager.
 - **Cleanup:** re-running the Piece 1 patch had inserted the review-gate data methods and two
   helpers into app.js FOUR times (object keys / function declarations — last copy won, so it
   worked, but it was a mess). Deduplicated to one copy each.
+
+## Update 2026-09-26 — board inspection, defect map, cutting optimization, additional boards
+
+Boards are not always perfect. Rommel's flow (decided via questions): the **materials** person
+inspects each board; **staff** re-run the cutting optimization, a **supervisor** adopts; extra boards
+need **supervisor then manager** in PMES, then **KEYSTONE** accepts (→ MRF) or rejects; a rejection may
+be **escalated to the Head of Plant Operations**, whose decision is final.
+- `pmes_boards` (job, group_key = material|color|texture|thickness|faces — the JO's board group,
+  board_no, size, status ok/defect/rejected) + `pmes_board_defects` (x, y, w, h in board mm, type).
+  Saved through `pmes_board_save` (materials role or supervisor+). A board with defects cannot stay
+  "ok". Job page → "Boards received — inspection": drag a box on the board drawing to mark a defect.
+- `optimizer.js` (pure, `node optimizer.test.js`, 10 checks): Modcraft's guillotine shelf packer —
+  **placement-for-placement identical to Modcraft's `guillotinePackBoards`** when there are no defects
+  (the test loads Modcraft's own function from ../../Modcraft/index.html) — plus: real boards opened
+  in inspection order, rejected boards never used, defects are no-cut zones (a strip moves along past a
+  defect, or sideways past it = one extra rip/crosscut of waste, still guillotine), and clean "extra"
+  boards counted when real ones run out. Pieces use the JO's cut sizes and grain.
+- `pmes_cut_plans` (versions; staff save `pmes_cut_plan_save`, supervisor `pmes_cut_plan_adopt`). The
+  process JO prints the ADOPTED plan's layout, with defects drawn red; otherwise Modcraft's.
+  Known gap: the printed cut sequence does not list the extra waste crosscut where a strip skips a defect.
+- `pmes_board_requests`: create (staff/materials/supervisor+, reason required) → `pmes_board_request_approve`
+  (supervisor, then manager, different people) → KEYSTONE "Board Requests" tab:
+  `adm_board_request_decide` (cap can_issue or can_release) → accept = `adm_mr_from_board_request`
+  (warehouse MRF, authorized, lines linked to new pmes_job_materials rows) → processed/received as
+  usual. Reject → `pmes_board_request_escalate` (PMES supervisor+) → `adm_board_request_final` —
+  requires the explicit **`is_plant_head`** cap (NOT granted to Admins automatically, like KEYSTONE's
+  other approver roles). Every decision in `adm_audit_log`. Whole chain tested, rolled back.
+- Defect records are kept per board and job, so defect rates by material/supplier can be reported later.
