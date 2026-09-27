@@ -1,10 +1,10 @@
 /* --------------------------- 5. Screen: Job detail ---------------------------
    One job, split into sub-tabs (Rommel 2026-09-27: the single long page was hard to use) so each
-   person opens the part they work on: Overview · Materials · Cutting · Production · Parts · Packing.
+   person opens the part they work on: Overview · Materials · Boards & cutting · Production · Parts · Packing.
    Data is loaded once per job; switching sub-tab redraws from it. */
 
 const JOB_TABS = [
-  ['overview', 'Overview'], ['materials', 'Materials'], ['cutting', 'Cutting'],
+  ['overview', 'Overview'], ['materials', 'Materials'], ['cutting', 'Boards & cutting'],
   ['production', 'Production'], ['parts', 'Parts'], ['packing', 'Packing'],
 ];
 
@@ -79,6 +79,7 @@ function drawJobTab() {
     const done = stages.filter((s) => s.status === 'complete').length;
     body.innerHTML = `
       ${renderJoReviewCard(job, joReviews)}
+      ${(job.mother_jo && (job.mother_jo.boards || []).length) ? '<div id="jdBoardsSummary"></div>' : ''}
       ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
         <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Output</th></tr></thead><tbody>
         ${stages.map((s) => { const st = State.stageTypes.find((x) => x.code === s.stage_code);
@@ -86,6 +87,7 @@ function drawJobTab() {
         </tbody></table>
         ${joApproved(job) ? '<button class="btn outline sm" style="margin-top:8px;" onclick="setJobTab(\'production\')">Go to Production →</button>' : ''}</div>` : ''}
       <div class="card"><h2>Job notes</h2><p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p></div>`;
+    if (document.getElementById('jdBoardsSummary')) renderBoardsSummary(job, document.getElementById('jdBoardsSummary'));
   }
 
   else if (t === 'materials') {
@@ -117,7 +119,7 @@ function drawJobTab() {
       ${cutStages.length && components.length && joApproved(job) ? `<div class="card"><h2>Print for the saw</h2><div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${cutStages.map((s) => `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')">Process JO — ${s.stage_code} (${componentsForStage(components, s.stage_code, job).length})</button>`).join('')}</div></div>` : ''}
       <div id="boardsBlock"><div class="card"><p class="small">Loading boards…</p></div></div>`;
-    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'));
+    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock')).then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const el = a && document.getElementById(a); if (el) el.scrollIntoView({ block: 'start' }); });
     else document.getElementById('boardsBlock').innerHTML = '<div class="card"><p class="small">No cutting layout on this job — it did not come from a Modcraft cutting list.</p></div>';
   }
 
@@ -380,31 +382,116 @@ function renderMRCard(job, mrs) {
 }
 // The MRF blocks themselves (lines + receive form). Used on the job page and the Materials page.
 function renderMRBlocks(mrs) {
+  // Rommel 2026-09-27: the materials person checks every item on its own — OK / Short / Damaged,
+  // a note, and a photo for damaged ones. The database (pmes_mr_receive) enforces the same rules.
   const canReceive = (State.me && State.me.role === 'materials') || pmesCan('supervisor');
   const pill = (st) => { const c = { authorized: 'blue', partially_issued: 'amber', issued: 'amber', partially_received: 'amber', received: 'green', closed: 'gray', cancelled: 'red' }[st] || 'gray';
-    const t = { authorized: 'Waiting for the warehouse', partially_issued: 'Warehouse partly processed', issued: 'Processed — confirm receipt', partially_received: 'Partly received', received: 'Received' }[st] || st;
+    const t = { authorized: 'Waiting for KEYSTONE to process', partially_issued: 'Warehouse partly processed', issued: 'Processed — check each item', partially_received: 'Partly received', received: 'Received' }[st] || st;
     return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
+  const condPill = (l) => {
+    if (!l.condition) return '';
+    const c = { ok: ['green', 'OK'], short: ['amber', 'Short'], damaged: ['red', 'Damaged'] }[l.condition] || ['gray', l.condition];
+    return '<span class="badge ' + c[0] + '">' + c[1] + '</span>';
+  };
   return mrs.map((m) => {
     const open = canReceive && ['partially_issued', 'issued', 'partially_received'].includes(m.status);
-    return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:10px;">
-      <div class="flex-between"><strong class="mono">${escapeHtml(m.mr_no || '')}</strong> <span class="small">${m.stream === 'purchase' ? 'purchase (outsource / made-to-order)' : 'warehouse'}</span> ${pill(m.status)}</div>
-      <div class="small" style="margin-top:4px;">${m.processed_by ? 'Processed by ' + escapeHtml(m.processed_by) + ', ' + fmtDate(m.processed_at) : 'Not yet processed by the warehouse'}${m.received_by ? ' · Received by ' + escapeHtml(m.received_by) + ', ' + fmtDate(m.received_at) : ''}</div>
-      <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Item</th><th>Unit</th><th>Requested</th><th>Processed</th><th>Received</th></tr></thead><tbody>
-      ${(m.lines || []).map((l) => `<tr><td>${escapeHtml(l.item)}${l.area ? '<br><span class="small">' + escapeHtml(l.area) + '</span>' : ''}</td><td>${escapeHtml(l.unit || '')}</td><td>${l.qty}</td><td>${l.issued}</td>
-        <td>${open && l.issued > 0 ? `<input type="number" min="0" max="${l.issued}" step="any" class="mrRecv" data-mr="${m.id}" data-line="${l.id}" value="${l.received || ''}" placeholder="0" style="width:80px;">` : l.received}</td></tr>`).join('')}
-      </tbody></table>
-      ${open ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button class="btn outline sm" onclick="document.querySelectorAll('.mrRecv[data-mr=&quot;${m.id}&quot;]').forEach((i)=>{i.value=i.max;})">All processed arrived</button>
-        <input type="text" id="mrNote_${m.id}" placeholder="Note (damage, shortage)" style="flex:1;min-width:160px;">
-        <button class="btn primary sm" onclick="submitMRReceive('${m.id}')">Confirm received</button></div>` : ''}
+    const waiting = m.status === 'authorized';
+    const lines = m.lines || [];
+    const head = `<div class="flex-between" style="gap:8px;flex-wrap:wrap;"><strong class="mono">${escapeHtml(m.mr_no || '')}</strong> <span class="small">${m.stream === 'purchase' ? 'purchase (outsource / made-to-order)' : 'warehouse'}</span> ${pill(m.status)}</div>
+      <div class="small" style="margin-top:4px;">${m.processed_by ? 'Processed by ' + escapeHtml(m.processed_by) + ', ' + fmtDate(m.processed_at) : 'Not yet processed by the warehouse'}${m.received_by ? ' · Received by ' + escapeHtml(m.received_by) + ', ' + fmtDate(m.received_at) : ''}</div>`;
+    const itemCell = (l) => `<strong>${escapeHtml(l.item)}</strong>${l.area ? '<br><span class="small">' + escapeHtml(l.area) + '</span>' : ''}`;
+    if (waiting) {
+      return `<div class="mr-block">${head}
+        <div class="callout info" style="margin-top:8px;">KEYSTONE has not processed this yet — the warehouse must press <strong>Confirm processed</strong> (KEYSTONE → Warehouse → Material requests). Then each item below can be checked here one by one.</div>
+        <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Item</th><th>Unit</th><th>Requested</th></tr></thead><tbody>
+        ${lines.map((l) => `<tr><td>${itemCell(l)}</td><td>${escapeHtml(l.unit || '')}</td><td>${l.qty}</td></tr>`).join('')}
+        </tbody></table></div>`;
+    }
+    if (!open) {
+      return `<div class="mr-block">${head}
+        <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Item</th><th>Unit</th><th>Requested</th><th>Processed</th><th>Received</th><th>Check</th></tr></thead><tbody>
+        ${lines.map((l) => `<tr><td>${itemCell(l)}</td><td>${escapeHtml(l.unit || '')}</td><td>${l.qty}</td><td>${l.issued}</td><td>${l.received}</td>
+          <td>${condPill(l)}${l.note ? '<div class="small">' + escapeHtml(l.note) + '</div>' : ''}${l.photo ? `<button class="btn outline sm" style="margin-top:4px;" onclick="viewReceiptPhoto('${encodeURIComponent(l.photo)}')">View photo</button>` : ''}${l.checked_by ? '<div class="small">' + escapeHtml(l.checked_by) + ' ' + fmtDate(l.checked_at) + '</div>' : ''}</td></tr>`).join('')}
+        </tbody></table></div>`;
+    }
+    return `<div class="mr-block">${head}
+      <p class="small" style="margin-top:8px;">Check every item: enter how many arrived in good condition, then mark it <strong>OK</strong>, <strong>Short</strong> (say what is missing) or <strong>Damaged</strong> (describe it and take a photo).</p>
+      ${lines.map((l) => {
+        const can = l.issued > 0;
+        const cond = l.condition || '';
+        return `<div class="mr-line" data-mr="${m.id}" data-line="${l.id}" data-issued="${l.issued}">
+          <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><div>${itemCell(l)}</div>
+            <div class="small">Requested ${l.qty} · Processed ${l.issued} ${escapeHtml(l.unit || '')} ${condPill(l)}</div></div>
+          ${can ? `<div class="mr-line-inputs">
+            <label class="small">Arrived in good condition<input type="number" min="0" max="${l.issued}" step="any" class="mrQty" value="${l.received || ''}" placeholder="0" oninput="mrQtyChanged(this)"></label>
+            <div class="mr-cond" role="radiogroup">
+              ${[['ok', 'OK'], ['short', 'Short'], ['damaged', 'Damaged']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${cond === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}
+            </div>
+            <input type="text" class="mrNote" placeholder="Note — what is short or damaged" value="${escapeHtml(l.note || '')}">
+            <div class="mrPhotoWrap" style="${cond === 'damaged' ? '' : 'display:none;'}">
+              <label class="small">Photo of the damage (required)<input type="file" accept="image/*" capture="environment" class="mrPhoto"></label>
+              ${l.photo ? `<button class="btn outline sm" onclick="viewReceiptPhoto('${encodeURIComponent(l.photo)}')">View saved photo</button>` : ''}
+            </div>
+          </div>` : '<div class="small" style="margin-top:6px;">Nothing processed on this line yet.</div>'}
+        </div>`;
+      }).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn outline sm" onclick="mrAllArrived('${m.id}')">Everything processed arrived OK</button>
+        <input type="text" id="mrNote_${m.id}" placeholder="Overall note (optional)" style="flex:1;min-width:160px;">
+        <button class="btn primary sm" onclick="submitMRReceive('${m.id}')">Confirm received</button></div>
     </div>`; }).join('');
 }
+function mrSetCond(btn, v) {
+  const row = btn.closest('.mr-line');
+  row.querySelectorAll('.mr-cond-btn').forEach((b) => { b.className = 'mr-cond-btn' + (b.dataset.v === v ? ' on ' + v : ''); });
+  row.dataset.cond = v;
+  row.querySelector('.mrPhotoWrap').style.display = v === 'damaged' ? '' : 'none';
+}
+function mrQtyChanged(inp) {
+  const row = inp.closest('.mr-line'), iss = Number(row.dataset.issued), v = inp.value === '' ? null : Number(inp.value);
+  const cur = row.dataset.cond || (row.querySelector('.mr-cond-btn.on') || {}).dataset?.v;
+  if (v !== null && v < iss && (!cur || cur === 'ok')) mrSetCond(row.querySelector('.mr-cond-btn[data-v="short"]'), 'short');
+  else if (v !== null && v >= iss && !cur) mrSetCond(row.querySelector('.mr-cond-btn[data-v="ok"]'), 'ok');
+}
+function mrAllArrived(mrId) {
+  document.querySelectorAll('.mr-line[data-mr="' + mrId + '"]').forEach((row) => {
+    const q = row.querySelector('.mrQty'); if (!q) return;
+    q.value = row.dataset.issued; mrSetCond(row.querySelector('.mr-cond-btn[data-v="ok"]'), 'ok');
+  });
+}
 async function submitMRReceive(mrId) {
-  const lines = [...document.querySelectorAll('.mrRecv[data-mr="' + mrId + '"]')].map((i) => ({ id: i.dataset.line, qty: i.value === '' ? 0 : Number(i.value) }));
-  if (lines.some((l) => !(l.qty >= 0))) return toast('Enter the quantity received for each line.', 'error');
+  const rows = [...document.querySelectorAll('.mr-line[data-mr="' + mrId + '"]')].filter((r) => r.querySelector('.mrQty'));
+  const lines = [];
+  for (const row of rows) {
+    const qEl = row.querySelector('.mrQty'), qty = qEl.value === '' ? 0 : Number(qEl.value);
+    const cond = row.dataset.cond || ((row.querySelector('.mr-cond-btn.on') || {}).dataset || {}).v || '';
+    const item = row.querySelector('strong').textContent;
+    if (!(qty >= 0)) return toast('Enter how many arrived for ' + item + '.', 'error');
+    if (!cond) return toast('Mark ' + item + ' as OK, Short or Damaged.', 'error');
+    const note = row.querySelector('.mrNote').value.trim();
+    if ((cond === 'short' || cond === 'damaged') && !note) return toast('Add a note for ' + item + ' — what is ' + cond + '.', 'error');
+    const line = { id: row.dataset.line, qty, condition: cond, note: note || null };
+    if (cond === 'damaged') {
+      const f = row.querySelector('.mrPhoto').files[0];
+      if (f) {
+        const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const path = mrId + '/' + row.dataset.line + '/' + Date.now() + '.' + ext;
+        const { error } = await sb.storage.from('pmes-receipts').upload(path, f, { contentType: f.type || 'image/jpeg', upsert: false });
+        if (error) return toast('Photo upload failed for ' + item + ': ' + error.message, 'error');
+        line.photo = path;
+      } else if (!row.querySelector('.mrPhotoWrap button')) return toast('Take a photo of the damage on ' + item + '.', 'error');
+    }
+    lines.push(line);
+  }
   try { const r = await Data.receiveMR(mrId, lines, (document.getElementById('mrNote_' + mrId) || {}).value);
-    toast('Receipt confirmed — ' + String(r.status).replace(/_/g, ' ') + '.', 'success'); render(); }
+    const extra = [r.short ? r.short + ' short' : '', r.damaged ? r.damaged + ' damaged' : ''].filter(Boolean).join(', ');
+    toast('Receipt confirmed — ' + String(r.status).replace(/_/g, ' ') + (extra ? ' (' + extra + ')' : '') + '.', 'success'); render(); }
   catch (e) { toast(e.message, 'error'); }
+}
+async function viewReceiptPhoto(encPath) {
+  const { data, error } = await sb.storage.from('pmes-receipts').createSignedUrl(decodeURIComponent(encPath), 600);
+  if (error) return toast('Could not open the photo: ' + error.message, 'error');
+  window.open(data.signedUrl, '_blank', 'noopener');
 }
 
 function renderComponentsTable(components) {

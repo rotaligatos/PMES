@@ -363,3 +363,10 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
   `goToJob(id, tab)` opens a given sub-tab. Tabs carry a dot when something waits.
 - Payment status card + its test simulator removed: every job in PMES was released paid or vouched, so it
   is now a tag by the job code. Jobs list: duplicate stat boxes removed, client/project shown and searchable.
+
+## 2026-09-27 — Receipt checked item by item; boards & cutting easier to reach
+- `adm_mr_lines` gained `receive_condition` (ok/short/damaged), `receive_note`, `receive_photo`, `receive_checked_by/at`.
+- `pmes_mr_receive` now takes per line `{id, qty, condition, note, photo}` and enforces: OK only if the full processed qty arrived; Short and Damaged need a note; Damaged needs a photo that really exists in the private bucket `pmes-receipts` under `<mr_id>/<line_id>/`. Condition defaults to short/ok from the qty for old callers.
+- Bucket `pmes-receipts` (private, images, 10 MB): upload = materials role or supervisor+; read = any PMES user, KEYSTONE user, or Modcraft admin tier. No update/delete (evidence).
+- `pmes_job_mrs` returns the new fields. Screen: per-item OK / Short / Damaged buttons, note, camera photo on Damaged, "View photo" after. An MRF KEYSTONE has not processed says so and lists its lines.
+- Job sub-tab "Cutting" renamed "Boards & cutting"; Overview has a Boards & cutting card (inspected count, plan state, Inspect boards / Cutting optimizer buttons); the Materials page has the same two buttons. `goToBoards(jobId, 'bdInspect'|'bdOptimize')` opens and scrolls.

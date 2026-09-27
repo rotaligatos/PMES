@@ -88,10 +88,10 @@ async function renderBoardsCards(job, el) {
   }).join('');
 
   el.innerHTML = `
-    <div class="card"><h2>Boards received — inspection</h2>
+    <div class="card" id="bdInspect"><h2>Boards received — inspection</h2>
       <p class="small">The materials person inspects every board: mark each defect on the board drawing, or reject the board. The cutting optimization plans around what is recorded here.</p>
       ${insp}</div>
-    <div class="card"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
+    <div class="card" id="bdOptimize"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
       ${_bdCanRun() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
       <p class="small" style="margin-top:6px;">Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
       ${run ? _bdRunHtml(run) : ''}
@@ -243,4 +243,24 @@ async function saveBoardInspect() {
       p_status: s.status, p_notes: s.notes || null, p_defects: s.defects.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h, type: d.type, note: d.note })) });
     closeSheet(); toast('Board ' + s.boardNo + ' saved.', 'success'); render();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+/* Overview + Materials page shortcut (Rommel 2026-09-27: inspection and the optimizer were too buried). */
+function goToBoards(jobId, anchor) {
+  State.jobScrollTo = anchor || 'bdInspect';
+  if (State.screen === 'jobDetail' && State.currentJobId === jobId && State.jd) { setJobTab('cutting'); return; }
+  goToJob(jobId, 'cutting');
+}
+async function renderBoardsSummary(job, el) {
+  const groups = _bdGroups(job);
+  const planned = groups.reduce((n, x) => n + (x.g.boardsNeeded || 0), 0);
+  let boards = [], plans = [];
+  try { [boards, plans] = await Promise.all([BoardsData.boards(job.id), BoardsData.plans(job.id)]); } catch (e) { el.innerHTML = ''; return; }
+  const insp = boards.length, rej = boards.filter((b) => b.status === 'rejected').length, dfc = boards.filter((b) => b.status === 'defect').length;
+  const adopted = plans.find((p) => p.status === 'adopted');
+  el.innerHTML = `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Boards &amp; cutting</h2>
+      <span class="small">${insp} of ${planned} boards inspected${dfc ? ' · ' + dfc + ' with defects' : ''}${rej ? ' · ' + rej + ' rejected' : ''} · ${adopted ? 'cutting plan v' + adopted.version + ' adopted' : (plans.length ? plans.length + ' plan(s) saved, none adopted' : 'no cutting plan yet')}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="btn ${insp < planned ? 'primary' : 'outline'} sm" onclick="goToBoards('${job.id}','bdInspect')">Inspect boards / mark defects</button>
+      <button class="btn ${insp >= planned && !adopted ? 'primary' : 'outline'} sm" onclick="goToBoards('${job.id}','bdOptimize')">Cutting optimizer</button></div></div>`;
 }
