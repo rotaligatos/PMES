@@ -98,15 +98,19 @@
         else if (!cap || !(cap.daily_capacity > 0)) note = 'no capacity set — not scheduled';
         else if (cap.unit !== l.unit) note = 'capacity is in ' + cap.unit + ', load is in ' + l.unit + ' — set capacity in ' + l.unit;
         else {
-          const d = new Date(Math.max((stageFree[s.stage_code] || start).getTime(), prevEnd.getTime()));
+          // A day is filled up to the process's capacity: what an earlier Job Order left unused on a day
+          // is taken by the next one the same day (2026-09-29). A Job Order's NEXT process starts the day after.
+          const used = stageFree[s.stage_code] = stageFree[s.stage_code] || {};
+          const d = new Date(prevEnd.getTime());
           let left = remaining, guard = 0;
           while (left > 1e-9 && guard++ < MAXD) {
-            const c = dayCap(cap, d);
-            if (c > 0) { if (!st) st = new Date(d); en = new Date(d); days++; left -= c; }
-            d.setDate(d.getDate() + 1);
+            const k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+            const c = dayCap(cap, d) - (used[k] || 0);
+            if (c > 1e-9) { const take = Math.min(c, left); used[k] = (used[k] || 0) + take; if (!st) st = new Date(d); en = new Date(d); days++; left -= take; }
+            if (left > 1e-9) d.setDate(d.getDate() + 1);
           }
           if (left > 1e-9) { note = 'no working days found in the next year — check the work calendar'; st = en = null; days = 0; }
-          else { stageFree[s.stage_code] = new Date(d); prevEnd = new Date(d);
+          else { prevEnd = new Date(en); prevEnd.setDate(prevEnd.getDate() + 1);
             byStage[s.stage_code] = byStage[s.stage_code] || { days: 0, jobs: 0 }; byStage[s.stage_code].days += days; byStage[s.stage_code].jobs += 1; }
         }
         rows.push({ job_code: j.job.job_code, job_id: j.job.id, stage_code: s.stage_code, load: l.qty, unit: l.unit, remaining, days, start: st, end: en, note });

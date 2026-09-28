@@ -47,11 +47,12 @@ async function renderSchedule(main) {
     const [caps, jobs, machines] = await Promise.all([Data.listStageCapacity(co), Data.listJobs(), Data.listMachines().catch(() => [])]);
     const open = jobs.filter((j) => j.destination_company === co && j.jo_review_status === 'approved' && j.status !== 'handed_off');
     const ids = open.map((j) => j.id);
-    const [pjoR, doneR, usersR] = ids.length ? await Promise.all([
+    const [pjoR, doneR, usersR, decR] = ids.length ? await Promise.all([
       sb.from(T('process_jos')).select('*').in('job_id', ids),
       sb.from(T('component_done')).select('job_id,stage_code,done_at').in('job_id', ids),
       sb.from('pmes_users').select('email,name,role,company,active').eq('active', true).order('name'),
-    ]) : [{ data: [] }, { data: [] }, { data: [] }];
+      sb.from(T('schedule_decisions')).select('*').in('job_id', ids).order('decided_at', { ascending: false }),
+    ]) : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
     if (pjoR.error) throw pjoR.error;
     const bundles = await Promise.all(open.map(async (job) => {
       const [stages, components, outputs] = await Promise.all([Data.listJobStages(job.id), Data.listComponents(job.id), Data.listStageOutputs(job.id).catch(() => [])]);
@@ -72,7 +73,7 @@ async function renderSchedule(main) {
     bundles.forEach((b) => { b.doneByStage = {}; done.filter((x) => x.job_id === b.job.id).forEach((x) => { b.doneByStage[x.stage_code] = (b.doneByStage[x.stage_code] || 0) + 1; }); });
     const rec = PmesSchedule.forwardSchedule(bundles, capacity, new Date(), { dayInfo: (d) => { const i = cal[pbIso(d)]; return i ? { working: i.working, shifts: (i.shifts || []).length } : { working: false, shifts: 0 }; } });
     PB.data = { co, caps, capacity, bundles, rec, machines: machines || [], users: (usersR && usersR.data) || [],
-      pjos: pjoR.data || [], done, cal, offdays: (offR && offR.data) || [], approver: (capsR && capsR.data) || {}, weeks: (weeksR && weeksR.data) || [], defDays: (defR && defR.data && defR.data.days) || null };
+      pjos: pjoR.data || [], done, decisions: (decR && decR.data) || [], cal, offdays: (offR && offR.data) || [], approver: (capsR && capsR.data) || {}, weeks: (weeksR && weeksR.data) || [], defDays: (defR && defR.data && defR.data.days) || null };
   } catch (e) { main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load: ${escapeHtml(e.message)}</p></div>`; return; }
   main.innerHTML = `<div id="pbTop"></div><div id="pbBody"></div>`;
   pbDraw();
@@ -228,7 +229,7 @@ function pbJobTimeline(J) {
 
 function pbGantt(jobs) {
   const today = pbDay(new Date());
-  const TL = jobs.map((J) => pbJobTimeline(J));
+  const TL = jobs.map((J) => pbJobTimeline(J)), IMP = pbDelayImpacts(jobs);
   let lo = new Date(today), hi = new Date(today); lo.setDate(lo.getDate() - 3); hi.setDate(hi.getDate() + 14);
   TL.forEach((t) => { t.plan.concat(t.act).forEach((x) => { if (x.s < lo) lo = pbDay(x.s); if (x.e > hi) hi = pbDay(x.e); }); if (t.proj && t.proj > hi) hi = pbDay(t.proj); });
   const days = Math.min(90, Math.round((hi - lo) / 864e5) + 1), W = 100 / days;
@@ -272,7 +273,7 @@ function pbGantt(jobs) {
       actRem = `Projected <b>${fmtDay(t.proj)}</b>${late ? ` <span class="g-late">+${diff} d late</span>` : early ? ` <span class="g-early">${diff} d early</span>` : t.planEnd ? ' <span class="g-early">on plan</span>' : ''}`;
     }
     const paceTip = t.pace ? `Pace so far ${t.pace.toFixed(1)} piece-steps per working day · ${t.doneSteps}/${t.totalSteps} done (every piece counted once per process). Projection = remaining ÷ pace, working days only.` : '';
-    return `<div class="g-row g-jo g-plan"><div class="g-lab">
+    return pbDelayLine(J, IMP[J.job.id]) + `<div class="g-row g-jo g-plan"><div class="g-lab">
         <div class="g-l1"><span class="g-dot" style="background:${dot}" title="${escapeHtml(sp[1] + (ap ? ' — ' + ap : ''))}"></span><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')" title="${escapeHtml(who)}">${escapeHtml(J.job.job_code)}</strong><span class="g-kind">Plan</span></div>
         <div class="small g-l2" title="${escapeHtml(who)}">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''}</div>
       </div><div class="g-track">${offCells}${line(t.plan, 'plan', approved)}<div class="g-today" style="left:${todayLeft}%"></div></div><div class="g-rem">${planRem}</div></div>
@@ -285,6 +286,47 @@ function pbGantt(jobs) {
   return `<div class="card">${legend}
     <div class="gantt"><div class="g-row g-head"><div class="g-lab"><span class="small">Job Order</span></div><div class="g-track">${dayHead}</div><div class="g-rem small">Finish</div></div>${jobs.map((J, i) => row(J, TL[i])).join('')}</div>
     <p class="small" style="margin:6px 0 0">Hover a day for the processes on it and their pieces; hover the projected finish to see the pace it is based on.</p></div>`;
+}
+
+/* ---- Delay knock-on (2026-09-29): the recommendation (PB.data.rec) re-plans every approved JO from
+   today using the pieces actually done and each day's capacity. A JO whose re-planned finish is later
+   than its own planned finish, while an earlier JO sharing one of its processes is behind plan, is being
+   pushed by that delay. The Schedule asks whether to change its plan or keep the original; "keep" is
+   recorded and not asked again unless the delay gets worse. ---- */
+function pbDelayImpacts(jobs) {
+  const d = PB.data, out = {};
+  const recEnd = (id) => { let e = null; d.rec.rows.forEach((r) => { if (r.job_id === id && r.end && (!e || r.end > e)) e = pbDay(r.end); }); return e; };
+  const planEnd = (J) => { let e = null; J.pjos.forEach((p) => { if (p._e && (!e || p._e > e)) e = pbDay(p._e); }); return e; };
+  const info = jobs.map((J) => { const pe = planEnd(J), re = recEnd(J.job.id);
+    return { J, pe, re, behind: J.late || !!(pe && re && re > pe), stages: J.pjos.map((p) => p.stage_code), at: String(J.job.jo_approved_at || '') }; });
+  info.forEach((x) => {
+    if (!x.pe || !x.re || !(x.re > x.pe)) return;
+    const causes = info.filter((y) => y !== x && y.at < x.at && y.behind && y.stages.some((c) => x.stages.indexOf(c) >= 0));
+    if (!causes.length) return;
+    const last = (d.decisions || []).find((k) => k.job_id === x.J.job.id);
+    const suppressed = !!(last && last.decision === 'keep' && last.projected_end && pbParse(last.projected_end) >= x.re);
+    out[x.J.job.id] = { planEnd: x.pe, projEnd: x.re, causes: causes.map((y) => y.J.job.job_code), days: pbWorkDaysBetween(x.pe, x.re) - 1, suppressed, last };
+  });
+  return out;
+}
+function pbDelayLine(J, imp) {
+  if (!imp) return '';
+  if (imp.suppressed) return `<div class="g-alert kept">Original plan kept by ${escapeHtml(imp.last.decided_by)} ${fmtDate(imp.last.decided_at)} despite the delay from ${escapeHtml(imp.causes.join(', '))}${imp.last.note ? ' — ' + escapeHtml(imp.last.note) : ''}.</div>`;
+  const can = pmesCan('production_engineer');
+  return `<div class="g-alert">⚠ Delayed by <b>${escapeHtml(imp.causes.join(', '))}</b> — at today's progress this Job Order would finish <b>${fmtDay(imp.projEnd)}</b> instead of <b>${fmtDay(imp.planEnd)}</b> (+${imp.days} working day${imp.days === 1 ? '' : 's'}). Change the plan or keep the original?
+    ${can ? `<button class="btn primary sm" onclick="pbDelayDecide('${J.job.id}','change')">Change plan</button> <button class="btn outline sm" onclick="pbDelayDecide('${J.job.id}','keep')">Keep original plan</button>` : '<span class="small">A production engineer, supervisor or manager decides.</span>'}</div>`;
+}
+async function pbDelayDecide(jobId, decision) {
+  const J = pbJobs().find((x) => x.job.id === jobId), imp = J && pbDelayImpacts(pbJobs())[jobId]; if (!J || !imp) return;
+  let note = null;
+  if (decision === 'keep') { note = prompt('Keep the original plan for ' + J.job.job_code + '? Optional reason:'); if (note === null) return; }
+  const row = { job_id: jobId, decision, planned_end: pbIso(imp.planEnd), projected_end: pbIso(imp.projEnd), caused_by: imp.causes, note: note || null };
+  try {
+    const { error } = await sb.from(T('schedule_decisions')).insert(row); if (error) throw error;
+    PB.data.decisions.unshift(Object.assign({ decided_at: new Date().toISOString(), decided_by: (State.me && State.me.email) || '' }, row));
+    if (decision === 'change') { PB.edit = null; pbOpenEdit(jobId); pbUseRec(jobId); toast('Recommended dates filled in — check and Save dates. The schedule then needs approval again.', 'success'); }
+    else { toast('Original plan kept — you will be asked again only if the delay gets worse.', 'success'); pbDraw(); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 /* ---- Kanban: process Job Orders by status ---- */

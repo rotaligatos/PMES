@@ -62,4 +62,16 @@ const c6 = r6.rows[0];
 ok(c6.days === 2 && c6.start.getDate() === 28 && c6.end.getDate() === 30, '240 lm: Mon 3 shifts (180) + Tue off (holiday) + Wed 60 = ends Wed 30');
 const r7 = S.forwardSchedule([{ job: jobCut, stages: stages.slice(0, 1), components: comps, outputs: [], doneByStage: { CUT: 20 } }], cap3, mon, { dayInfo: cal });
 ok(r7.rows[0].remaining === 0, 'pieces ticked done (doneByStage) replace confirmed output');
+
+// 2026-09-29: a day fills up to capacity — the next Job Order uses what the previous one left that day
+const jobA = Object.assign({}, job, { id: 'ja', job_code: 'JO-A', jo_approved_at: '2026-09-26T01:00:00Z', mother_jo: Object.assign({}, job.mother_jo, { services: { cuttingLM: 90, edgebandingLM: 0, holeCount: 0, extraServicesByName: [] } }) });
+const jobB = Object.assign({}, jobA, { id: 'jb', job_code: 'JO-B', jo_approved_at: '2026-09-26T02:00:00Z' });
+const r8 = S.forwardSchedule([{ job: jobA, stages: stages.slice(0, 1), components: comps, outputs: [] }, { job: jobB, stages: stages.slice(0, 1), components: comps, outputs: [] }], cap, mon);
+const a8 = r8.rows.find((x) => x.job_code === 'JO-A'), b8 = r8.rows.find((x) => x.job_code === 'JO-B');
+ok(a8.start.getDate() === 28 && a8.end.getDate() === 29, 'JO-A 90 lm at 60/day: Mon full + half of Tue');
+ok(b8.start.getDate() === 29 && b8.end.getDate() === 30, 'JO-B takes the other half of Tue, finishes Wed (90 = 30 + 60)');
+const cap2s = { CUT: { daily_capacity: 60, unit: 'lm', shifts_per_day: 1, workdays_per_week: 6 } };
+const two = (d) => ({ working: d.getDay() !== 0, shifts: 2 });
+const r9 = S.forwardSchedule([{ job: jobA, stages: stages.slice(0, 1), components: comps, outputs: [] }, { job: jobB, stages: stages.slice(0, 1), components: comps, outputs: [] }], cap2s, mon, { dayInfo: two });
+ok(r9.rows[0].end.getDate() === 28 && r9.rows[1].start.getDate() === 28 && r9.rows[1].end.getDate() === 29, 'two shifts = 120 lm/day: JO-A done Mon, JO-B uses Mon\'s spare 30 then 60 on Tue');
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);
