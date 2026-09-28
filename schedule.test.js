@@ -52,4 +52,14 @@ ok(r5.rows.find((x) => x.stage_code === 'ASM').end.getDate() === 5, 'ASM from Fr
 const plain = S.stageLoad({ id: 'x', job_code: 'X' }, comps, stages);
 ok(plain.CUT.qty === 20 && plain.CUT.unit === 'pieces', 'no mother JO -> pieces on every process');
 
+
+// work calendar (2026-09-28): shifts per day vary; holidays / rest days are off unless approved
+const cap3 = { CUT: { daily_capacity: 60, unit: 'lm', shifts_per_day: 1, workdays_per_week: 6 } };
+const cal = (d) => { const k = d.getDate(); if (d.getMonth() === 8 && k === 28) return { working: true, shifts: 3 }; if (k === 29) return { working: false, shifts: 1 }; return { working: d.getDay() !== 0, shifts: 1 }; };
+const jobCut = Object.assign({}, job, { mother_jo: Object.assign({}, job.mother_jo, { services: { cuttingLM: 240, edgebandingLM: 0, holeCount: 0, extraServicesByName: [] } }) });
+const r6 = S.forwardSchedule([{ job: jobCut, stages: stages.slice(0, 1), components: comps, outputs: [] }], cap3, mon, { dayInfo: cal });
+const c6 = r6.rows[0];
+ok(c6.days === 2 && c6.start.getDate() === 28 && c6.end.getDate() === 30, '240 lm: Mon 3 shifts (180) + Tue off (holiday) + Wed 60 = ends Wed 30');
+const r7 = S.forwardSchedule([{ job: jobCut, stages: stages.slice(0, 1), components: comps, outputs: [], doneByStage: { CUT: 20 } }], cap3, mon, { dayInfo: cal });
+ok(r7.rows[0].remaining === 0, 'pieces ticked done (doneByStage) replace confirmed output');
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);

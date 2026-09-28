@@ -405,3 +405,17 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 - Screen Schedule (`screens-planboard.js`): Gantt / Kanban / Calendar / Today (shift), remembered per user. Today shows plan for
   the day vs pieces ticked done, and per hour over an assumed 8:00–17:00 shift (lunch 12–1). Shift heads land on it.
 - Modcraft `modcraft_jo_progress`: schedule_status, planned dates per process (only once approved), process JO status.
+
+## 2026-09-28 — Work calendar, holidays, off-day approval, two-step schedule approval
+- Operating hours are not fixed:  (one default week per plant) and  (any week set differently:
+  1–3 shifts, compressed weeks). Days are Monday-first, each {shifts:[{name,start,end,break}]}.  (production engineer+;
+  the default week manager+), .
+- Holidays: national (settings PH_HOLIDAYS, synced) + local per plant (CONFIG ordersSla.companies[..].localHolidays), via .
+   gives each day {shifts, holiday, off_kind holiday|restday, request, working}. A rest day = a day the
+  DEFAULT week has no shift. Working a holiday or rest day needs : manager → Head of Plant Operations
+  (adm_user_caps.is_plant_head) → Managing Director (adm_user_caps.is_md_approver), three different people; only then the day counts.
+- Schedule dates cannot start or end on a non-working day (, ). Approval is now two steps:
+  supervisor, then a manager (different people); schedule_status draft → supervisor_ok → approved. Hand-out still needs 'approved'.
+-  forwardSchedule(jobs, capacity, start, {dayInfo}) consumes each day's capacity = daily_capacity ÷ shifts_per_day × that day's
+  shifts, skipping days that are not working; doneByStage (pieces ticked) replaces confirmed output. Tests in schedule.test.js.
+- Screen: Schedule → Work calendar (week editor, quick-fill presets, requests with the approval chain). Today's hourly plan uses today's shifts.

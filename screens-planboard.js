@@ -10,9 +10,22 @@
    ===================================================================== */
 
 const PB = { view: null, edit: null, draft: {}, month: null, data: null };
-const PB_VIEWS = [['gantt', 'Gantt'], ['kanban', 'Kanban'], ['calendar', 'Calendar'], ['today', 'Today (shift)']];
+const PB_VIEWS = [['gantt', 'Gantt'], ['kanban', 'Kanban'], ['calendar', 'Calendar'], ['today', 'Today (shift)'], ['workcal', 'Work calendar']];
 const PJO_STATUS = { to_schedule: ['gray', 'To schedule'], scheduled: ['blue', 'Scheduled'], handed_out: ['amber', 'Handed out'], in_progress: ['amber', 'In progress'], done: ['green', 'Done'] };
-const SHIFT_HOURS = [8, 9, 10, 11, 13, 14, 15, 16];   // 8:00–17:00 with a 12:00 lunch break
+const SCHED_STATUS = { none: ['gray', 'No schedule'], draft: ['amber', 'Schedule draft'], supervisor_ok: ['blue', 'Supervisor approved — waiting for manager'], approved: ['green', 'Schedule approved'] };
+const OFFDAY_STATUS = { pending_manager: ['amber', 'Waiting for manager'], pending_hpo: ['amber', 'Waiting for Head of Plant Ops'], pending_md: ['amber', 'Waiting for Managing Director'], approved: ['green', 'Approved to work'], rejected: ['red', 'Rejected'], cancelled: ['gray', 'Cancelled'] };
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// The day as the work calendar says (pmes_calendar_range): { working, shifts:[{start,end,break}], holiday, off_kind, request }
+function pbDayInfo(d) { return (PB.data && PB.data.cal[pbIso(d)]) || null; }
+// Hour slots of a day's shifts, in order (a night shift runs past midnight).
+function pbShiftSlots(info) {
+  const out = [];
+  ((info && info.shifts) || []).forEach((s) => {
+    const a = parseInt(String(s.start).slice(0, 2), 10), b = parseInt(String(s.end).slice(0, 2), 10);
+    let h = a, n = 0; do { out.push(h); h = (h + 1) % 24; n++; } while (h !== b && n < 24);
+  });
+  return out;
+}
 
 function pbView() {
   if (PB.view) return PB.view;
@@ -24,7 +37,6 @@ function pbSetView(v) { PB.view = v; try { localStorage.setItem('pmes_sched_view
 function pbDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function pbIso(d) { const x = pbDay(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
 function pbParse(s) { if (!s) return null; const p = String(s).slice(0, 10).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
-function pbWorkdays(a, b) { let n = 0; const d = new Date(a); while (d <= b) { if (d.getDay() !== 0) n++; d.setDate(d.getDate() + 1); } return Math.max(1, n); }
 function pbStageLabel(code) { const t = State.stageTypes.find((x) => x.code === code); return t ? t.label : code; }
 function pbPill(st) { const s = PJO_STATUS[st] || ['gray', st]; return `<span class="badge ${s[0]}">${s[1]}</span>`; }
 
@@ -46,9 +58,21 @@ async function renderSchedule(main) {
       return { job, stages, components, outputs };
     }));
     const capacity = {}; caps.forEach((c) => { capacity[c.stage_code] = c; });
-    const rec = PmesSchedule.forwardSchedule(bundles, capacity, new Date());
+    const from = new Date(); from.setDate(from.getDate() - 60); const to = new Date(); to.setDate(to.getDate() + 240);
+    const [calR, offR, capsR, weeksR, defR] = await Promise.all([
+      sb.rpc('pmes_calendar_range', { p_company: co, p_from: pbIso(from), p_to: pbIso(to) }),
+      sb.from(T('offday_requests')).select('*').eq('company', co).order('work_date', { ascending: false }),
+      sb.rpc('pmes_approver_caps'),
+      sb.from(T('work_weeks')).select('*').eq('company', co),
+      sb.from(T('work_default')).select('*').eq('company', co).maybeSingle(),
+    ]);
+    if (calR.error) throw calR.error;
+    const cal = {}; (calR.data || []).forEach((x) => { cal[String(x.date).slice(0, 10)] = x; });
+    const done = (doneR && doneR.data) || [];
+    bundles.forEach((b) => { b.doneByStage = {}; done.filter((x) => x.job_id === b.job.id).forEach((x) => { b.doneByStage[x.stage_code] = (b.doneByStage[x.stage_code] || 0) + 1; }); });
+    const rec = PmesSchedule.forwardSchedule(bundles, capacity, new Date(), { dayInfo: (d) => { const i = cal[pbIso(d)]; return i ? { working: i.working, shifts: (i.shifts || []).length } : { working: false, shifts: 0 }; } });
     PB.data = { co, caps, capacity, bundles, rec, machines: machines || [], users: (usersR && usersR.data) || [],
-      pjos: pjoR.data || [], done: (doneR && doneR.data) || [] };
+      pjos: pjoR.data || [], done, cal, offdays: (offR && offR.data) || [], approver: (capsR && capsR.data) || {}, weeks: (weeksR && weeksR.data) || [], defDays: (defR && defR.data && defR.data.days) || null };
   } catch (e) { main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load: ${escapeHtml(e.message)}</p></div>`; return; }
   main.innerHTML = `<div id="pbTop"></div><div id="pbBody"></div>`;
   pbDraw();
@@ -86,28 +110,33 @@ function pbDraw() {
   const v = pbView(), jobs = pbJobs();
   top.innerHTML = `<div class="flex-between" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <div class="seg">${PB_VIEWS.map(([k, l]) => `<button class="${v === k ? 'on' : ''}" onclick="pbSetView('${k}')">${l}</button>`).join('')}</div>
-      ${pmesCan('manager') ? `<select onchange="SchedState.company=this.value;render()">${COMPANY_CODES.map((c) => `<option ${c === d.co ? 'selected' : ''}>${c}</option>`).join('')}</select>` : `<span class="small">${d.co}</span>`}
+      ${pmesCan('manager') ? `<select style="width:auto;min-width:110px" onchange="SchedState.company=this.value;render()">${COMPANY_CODES.map((c) => `<option ${c === d.co ? 'selected' : ''}>${c}</option>`).join('')}</select>` : `<span class="small">${d.co}</span>`}
     </div>
     ${!d.caps.length ? `<div class="callout blocked">No process capacity is set for ${d.co}, so the system cannot recommend dates — IE → Process capacity.</div>` : ''}`;
+  if (v === 'workcal') { body.innerHTML = pbWorkCal(); return; }
   if (!jobs.length) { body.innerHTML = `<div class="empty"><div class="ic">📅</div><p>No approved Job Orders for ${d.co}.</p><p class="small">A Job Order appears here once it is approved; its process Job Orders are created then.</p></div>`; return; }
   body.innerHTML = v === 'kanban' ? pbKanban(jobs) : v === 'calendar' ? pbCalendar(jobs) : v === 'today' ? pbToday(jobs) : pbGantt(jobs);
 }
 
 /* ---- Per-JO header with schedule actions (shared by Gantt) ---- */
 function pbJobHead(J) {
-  const ss = J.job.schedule_status || 'none';
-  const canPlan = pmesCan('production_engineer'), canApprove = pmesCan('supervisor');
+  const ss = J.job.schedule_status || 'none', sp = SCHED_STATUS[ss] || SCHED_STATUS.none;
+  const canPlan = pmesCan('production_engineer');
   const hasDates = J.pjos.filter((p) => p.planned_pieces > 0 && p.status !== 'done').every((p) => p.planned_start);
+  const me = String((State.me && State.me.email) || '').toLowerCase();
+  // Two approvals: a supervisor, then a manager (different people). The database enforces the same.
+  const apBtn = ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
+    : ss === 'supervisor_ok' && pmesCan('manager') && String(J.job.schedule_supervisor_by || '').toLowerCase() !== me ? 'Approve (manager)' : '';
   return `<div class="flex-between" style="gap:8px;flex-wrap:wrap;">
       <div><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')">${escapeHtml(J.job.job_code)}</strong>
-        ${ss === 'approved' ? '<span class="badge green">Schedule approved</span>' : '<span class="badge amber">Schedule draft</span>'}
+        <span class="badge ${sp[0]}">${sp[1]}</span>
         <div class="small">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''}${J.job.quotation_serial ? ' · ' + escapeHtml(J.job.quotation_serial) : ''}</div>
         <div>${pbWhere(J)}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${canPlan ? `<button class="btn outline sm" onclick="pbOpenEdit('${J.job.id}')">${PB.edit === J.job.id ? 'Editing…' : 'Edit dates'}</button>` : ''}
-        ${canApprove && ss !== 'approved' ? `<button class="btn primary sm" ${hasDates ? '' : 'disabled title="Give every process dates first"'} onclick="pbApprove('${J.job.id}')">Approve schedule</button>` : ''}
+        ${apBtn ? `<button class="btn primary sm" ${hasDates ? '' : 'disabled title="Give every process dates first"'} onclick="pbApprove('${J.job.id}')">${apBtn}</button>` : ''}
       </div></div>
-    ${ss === 'approved' && J.job.schedule_approved_at ? `<div class="small">Approved by ${escapeHtml(J.job.schedule_approved_by || '')} ${fmtDate(J.job.schedule_approved_at)}${J.job.schedule_note ? ' · ' + escapeHtml(J.job.schedule_note) : ''}</div>` : ''}
+    ${J.job.schedule_supervisor_at ? `<div class="small">Supervisor: ${escapeHtml(J.job.schedule_supervisor_by || '')} ${fmtDate(J.job.schedule_supervisor_at)}${ss === 'approved' && J.job.schedule_approved_at ? ' · Manager: ' + escapeHtml(J.job.schedule_approved_by || '') + ' ' + fmtDate(J.job.schedule_approved_at) : ''}${J.job.schedule_note ? ' · ' + escapeHtml(J.job.schedule_note) : ''}</div>` : ''}
     ${PB.edit === J.job.id ? pbEditor(J) : ''}`;
 }
 function pbOpenEdit(jobId) {
@@ -148,9 +177,10 @@ async function pbSave(jobId) {
   } catch (e) { toast(e.message, 'error'); }
 }
 async function pbApprove(jobId) {
-  const note = prompt('Approve this loading schedule? It will show in Modcraft. Optional note:');
+  const note = prompt('Approve this loading schedule? A supervisor approves first, then a manager — then it shows in Modcraft. Optional note:');
   if (note === null) return;
-  try { const { error } = await sb.rpc('pmes_schedule_approve', { p_job: jobId, p_note: note || null }); if (error) throw error; toast('Schedule approved.', 'success'); render(); }
+  try { const { data, error } = await sb.rpc('pmes_schedule_approve', { p_job: jobId, p_note: note || null }); if (error) throw error;
+    toast(data && data.status === 'approved' ? 'Schedule approved — it now shows in Modcraft.' : 'Approved — now waiting for a manager.', 'success'); render(); }
   catch (e) { toast(e.message, 'error'); }
 }
 
@@ -160,11 +190,13 @@ function pbGantt(jobs) {
   let lo = new Date(today), hi = new Date(today); lo.setDate(lo.getDate() - 3); hi.setDate(hi.getDate() + 14);
   jobs.forEach((J) => J.pjos.forEach((p) => { const s = p._s || (p._rec && p._rec.start), e = p._e || (p._rec && p._rec.end); if (s && s < lo) lo = pbDay(s); if (e && e > hi) hi = pbDay(e); }));
   const days = Math.min(70, Math.round((hi - lo) / 864e5) + 1), W = 100 / days;
-  const dayHead = Array.from({ length: days }, (_, i) => { const d = new Date(lo); d.setDate(d.getDate() + i);
-    return `<div class="gd ${d.getDay() === 0 ? 'sun' : ''} ${+d === +today ? 'tod' : ''}" style="width:${W}%">${d.getDate() === 1 || i === 0 ? '<b>' + d.toLocaleDateString(undefined, { month: 'short' }) + '</b><br>' : ''}${d.getDate()}</div>`; }).join('');
+  const dayHead = Array.from({ length: days }, (_, i) => { const d = new Date(lo); d.setDate(d.getDate() + i); const inf = pbDayInfo(d) || {};
+    const cls = inf.working === false ? 'off' : inf.request === 'approved' ? 'ot' : '';
+    const tip = inf.holiday ? inf.holiday : inf.off_kind === 'restday' ? 'Rest day' : '';
+    return `<div class="gd ${cls} ${+d === +today ? 'tod' : ''}" style="width:${W}%" title="${escapeHtml(tip + (inf.request ? ' · ' + (OFFDAY_STATUS[inf.request] || [0, inf.request])[1] : '') + (inf.working ? ' · ' + (inf.shifts || []).length + ' shift(s)' : ' · not working'))}">${d.getDate() === 1 || i === 0 ? '<b>' + d.toLocaleDateString(undefined, { month: 'short' }) + '</b><br>' : ''}${d.getDate()}${inf.working && (inf.shifts || []).length > 1 ? '<div class="gs">×' + inf.shifts.length + '</div>' : ''}</div>`; }).join('');
   const pos = (s, e) => { const l = Math.max(0, (pbDay(s) - lo) / 864e5), r = Math.min(days, (pbDay(e) - lo) / 864e5 + 1); return `left:${l * W}%;width:${Math.max(W * 0.6, (r - l) * W)}%`; };
   const todayLeft = ((today - lo) / 864e5 + 0.5) * W;
-  return `<div class="small" style="margin-bottom:6px;">Bar = planned dates (dashed = not approved yet, faint = system recommendation only) · fill = pieces done · red = past its planned end and not done · blue line = today.</div>` +
+  return `<div class="small" style="margin-bottom:6px;">Bar = planned dates (dashed = not approved yet, faint = system recommendation only) · fill = pieces done · red = past its planned end and not done · blue line = today · grey day = holiday / rest day / no shift · green day = approved to work · ×3 = shifts that day.</div>` +
     jobs.map((J) => `<div class="card">${pbJobHead(J)}
       <div class="gantt"><div class="g-row g-head"><div class="g-lab"></div><div class="g-track">${dayHead}</div></div>
       ${J.pjos.map((p) => { const approved = J.job.schedule_status === 'approved';
@@ -197,7 +229,8 @@ function pbCalendar(jobs) {
   const today = pbDay(new Date()), items = []; jobs.forEach((J) => J.pjos.forEach((p) => { if (p._s) items.push({ J, p }); }));
   const cells = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i);
     const on = items.filter(({ p }) => p._s <= d && d <= p._e);
-    return `<div class="cal-d ${d.getMonth() !== m.getMonth() ? 'out' : ''} ${+d === +today ? 'tod' : ''} ${d.getDay() === 0 ? 'sun' : ''}"><div class="small"><b>${d.getDate()}</b></div>
+    const inf = pbDayInfo(d) || {};
+    return `<div class="cal-d ${d.getMonth() !== m.getMonth() ? 'out' : ''} ${+d === +today ? 'tod' : ''} ${inf.working === false ? 'sun' : ''}"><div class="small"><b>${d.getDate()}</b>${inf.holiday ? ' <span class="cal-hol">' + escapeHtml(inf.holiday) + '</span>' : ''}${inf.request === 'approved' ? ' <span class="badge green" style="font-size:9px">work approved</span>' : ''}${inf.working && (inf.shifts || []).length > 1 ? ' <span class="small">×' + inf.shifts.length + ' shifts</span>' : ''}</div>
       ${on.slice(0, 5).map(({ J, p }) => `<div class="cal-chip ${p.status === 'done' ? 'done' : p._late ? 'late' : ''}" title="${escapeHtml(p.pjo_no + ' · ' + J.client + ' · ' + p._done + '/' + p.planned_pieces)}" onclick="goToJob('${J.job.id}')">${escapeHtml(p.stage_code)} · ${escapeHtml(J.job.job_code)}</div>`).join('')}
       ${on.length > 5 ? '<div class="small">+' + (on.length - 5) + ' more</div>' : ''}</div>`; }).join('');
   const nav = (k) => `PB.month=new Date(${m.getFullYear()},${m.getMonth() + k},1);pbDraw()`;
@@ -211,17 +244,19 @@ function pbToday(jobs) {
   const today = pbDay(new Date()), iso = pbIso(today), rows = [];
   jobs.forEach((J) => J.pjos.forEach((p) => { if (p.status === 'done' || !p._s) return; if (p._s <= today && (p._e >= today || p._late)) rows.push({ J, p }); }));
   if (!rows.length) return `<div class="empty"><div class="ic">🗓️</div><p>Nothing is scheduled for today.</p><p class="small">Only process Job Orders with dates covering today (or past due and not done) show here.</p></div>`;
-  const nowH = new Date().getHours();
-  return `<p class="small" style="margin-bottom:8px;">Plan for today = pieces left spread over the working days left in the plan; per hour over a 8:00–17:00 shift (lunch 12–1). Actual = pieces ticked done (Pieces tab or scanner).</p>` +
+  const nowH = new Date().getHours(), tInfo = pbDayInfo(today), slots = pbShiftSlots(tInfo), nowIdx = slots.indexOf(nowH);
+  const workLeft = (e) => { let n = 0; const d = new Date(today); while (d <= e) { const i = pbDayInfo(d); if (i && i.working) n++; d.setDate(d.getDate() + 1); } return Math.max(1, n); };
+  return `<p class="small" style="margin-bottom:8px;">Today: ${tInfo && tInfo.working ? (tInfo.shifts || []).map((x) => escapeHtml(x.start + '–' + x.end)).join(', ') + ' (from the work calendar)' : '<strong>not a working day</strong>' + (tInfo && tInfo.holiday ? ' — ' + escapeHtml(tInfo.holiday) : '')}. Plan for today = pieces left spread over the working days left in the plan, then evenly over today's shift hours. Actual = pieces ticked done (Pieces tab or scanner).</p>` +
     rows.map(({ J, p }) => {
       const left = Math.max(0, p.planned_pieces - p._doneRows.filter((x) => new Date(x.done_at) < today).length);
-      const daysLeft = p._late ? 1 : pbWorkdays(today, p._e);
+      const daysLeft = p._late ? 1 : workLeft(p._e);
       const planToday = Math.ceil(left / daysLeft);
       const doneToday = p._doneRows.filter((x) => new Date(x.done_at) >= today);
-      const perHour = planToday / SHIFT_HOURS.length;
+      const perHour = slots.length ? planToday / slots.length : 0;
       let cumP = 0, cumA = 0;
-      const hrs = SHIFT_HOURS.map((h) => { const a = doneToday.filter((x) => new Date(x.done_at).getHours() === h).length; cumP += perHour; cumA += a;
-        const past = h < nowH; return `<tr class="${h === nowH ? 'now' : ''}"><td>${h}:00</td><td>${Math.round(cumP)}</td><td>${h <= nowH ? a : ''}</td><td>${h <= nowH ? '<strong>' + cumA + '</strong>' : ''}</td><td>${h <= nowH ? (cumA >= Math.round(cumP) ? '<span class="badge green">on</span>' : past ? '<span class="badge red">' + (cumA - Math.round(cumP)) + '</span>' : '') : ''}</td></tr>`; }).join('');
+      const hrs = slots.map((h, i) => { const a = doneToday.filter((x) => new Date(x.done_at).getHours() === h).length; cumP += perHour; cumA += a;
+        const seen = nowIdx < 0 ? nowH > h : i <= nowIdx, past = nowIdx < 0 ? nowH > h : i < nowIdx;
+        return `<tr class="${i === nowIdx ? 'now' : ''}"><td>${String(h).padStart(2, '0')}:00</td><td>${Math.round(cumP)}</td><td>${seen ? a : ''}</td><td>${seen ? '<strong>' + cumA + '</strong>' : ''}</td><td>${seen ? (cumA >= Math.round(cumP) ? '<span class="badge green">on</span>' : past ? '<span class="badge red">' + (cumA - Math.round(cumP)) + '</span>' : '') : ''}</td></tr>`; }).join('') || '<tr><td colspan="5" class="small">No shifts today in the work calendar.</td></tr>';
       return `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;">
           <div><strong>${escapeHtml(pbStageLabel(p.stage_code))}</strong> ${pbPill(p.status)} ${p._late ? '<span class="badge red">Past planned end ' + fmtDay(p._e) + '</span>' : ''}
             <div class="small mono">${escapeHtml(p.pjo_no)}</div><div class="small">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''} · plan ${fmtDay(p._s)} → ${fmtDay(p._e)}</div>
@@ -260,4 +295,120 @@ async function pbHandoutSave(pjoId) {
     const { error } = await sb.rpc('pmes_pjo_handout', { p_pjo: pjoId, p_machine: document.getElementById('hoMachine').value || null, p_operators: ops, p_note: document.getElementById('hoNote').value || null });
     if (error) throw error; closeSheet(); toast('Handed out.', 'success'); render();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---- Work calendar: operating hours per week (compressed weeks, 1–3 shifts), holidays, and approval to work
+   a holiday or rest day (manager → Head of Plant Operations → Managing Director). ---- */
+const WC_PRESETS = [
+  ['Standard: 1 shift, Mon–Sat', [1, 1, 1, 1, 1, 1, 0], [['Day', '08:00', '17:00', 60]]],
+  ['2 shifts, Mon–Sat', [1, 1, 1, 1, 1, 1, 0], [['Day', '06:00', '14:00', 30], ['Swing', '14:00', '22:00', 30]]],
+  ['3 shifts, Mon–Fri', [1, 1, 1, 1, 1, 0, 0], [['Day', '06:00', '14:00', 30], ['Swing', '14:00', '22:00', 30], ['Night', '22:00', '06:00', 30]]],
+  ['Compressed: Mon–Thu, 10-hour shift', [1, 1, 1, 1, 0, 0, 0], [['Day', '07:00', '18:00', 60]]],
+];
+function pbMonday(d) { const x = pbDay(d); const k = (x.getDay() + 6) % 7; x.setDate(x.getDate() - k); return x; }
+function pbWeekDays(weekIso) {
+  const w = PB.data.weeks.find((x) => String(x.week_start).slice(0, 10) === weekIso);
+  return { custom: !!w, note: w ? w.note || '' : '', days: JSON.parse(JSON.stringify((w && w.days) || PB.data.defDays || Array.from({ length: 7 }, () => ({ shifts: [] })))) };
+}
+function pbWorkCal() {
+  if (!PB.week) PB.week = pbMonday(new Date());
+  const wIso = pbIso(PB.week);
+  if (!PB.wk || PB.wk.weekIso !== wIso) { const w = pbWeekDays(wIso); PB.wk = { weekIso: wIso, custom: w.custom, note: w.note, days: w.days, dirty: false }; }
+  const canEdit = pmesCan('production_engineer'), canDefault = pmesCan('manager');
+  const nav = (k) => `PB.week=new Date(${PB.week.getFullYear()},${PB.week.getMonth()},${PB.week.getDate() + k});PB.wk=null;pbDraw()`;
+  const cols = PB.wk.days.map((day, i) => {
+    const d = new Date(PB.week); d.setDate(d.getDate() + i); const inf = pbDayInfo(d) || {}, iso = pbIso(d);
+    const req = PB.data.offdays.find((r) => String(r.work_date).slice(0, 10) === iso && r.status !== 'rejected' && r.status !== 'cancelled');
+    const offKind = inf.off_kind;
+    const reqHtml = req ? '<div class="small" style="margin-top:6px"><span class="badge ' + OFFDAY_STATUS[req.status][0] + '">' + OFFDAY_STATUS[req.status][1] + '</span></div>'
+      : canEdit ? `<button class="btn primary sm" style="margin-top:6px" onclick="pbOffdayRequest('${iso}')">Request to work this day</button>` : '';
+    return `<div class="wc-day ${inf.working ? '' : 'off'}">
+      <div class="flex-between"><strong>${DOW[i]} ${d.getDate()}</strong>${inf.working ? '<span class="badge green">Working</span>' : '<span class="badge gray">Off</span>'}</div>
+      ${inf.holiday ? '<div class="small" style="color:#b33a2f">🎌 ' + escapeHtml(inf.holiday) + '</div>' : offKind === 'restday' ? '<div class="small">Rest day</div>' : ''}
+      ${(day.shifts || []).map((s, k) => `<div class="wc-shift">
+        <input type="text" value="${escapeHtml(s.name || '')}" placeholder="Shift" ${canEdit ? '' : 'disabled'} onchange="PB.wk.days[${i}].shifts[${k}].name=this.value;PB.wk.dirty=true">
+        <div class="wc-times"><input type="time" value="${escapeHtml(s.start)}" ${canEdit ? '' : 'disabled'} onchange="PB.wk.days[${i}].shifts[${k}].start=this.value;PB.wk.dirty=true">
+        <span>–</span><input type="time" value="${escapeHtml(s.end)}" ${canEdit ? '' : 'disabled'} onchange="PB.wk.days[${i}].shifts[${k}].end=this.value;PB.wk.dirty=true"></div>
+        <label class="small">Break (min) <input type="number" min="0" step="5" value="${s.break == null ? '' : s.break}" ${canEdit ? '' : 'disabled'} onchange="PB.wk.days[${i}].shifts[${k}].break=Number(this.value)||0;PB.wk.dirty=true" style="width:60px"></label>
+        ${canEdit ? `<button class="btn outline sm" onclick="PB.wk.days[${i}].shifts.splice(${k},1);PB.wk.dirty=true;pbDraw()">Remove</button>` : ''}</div>`).join('') || '<p class="small">No shift</p>'}
+      ${canEdit ? `<button class="btn outline sm" onclick="PB.wk.days[${i}].shifts.push({name:'Shift',start:'08:00',end:'17:00',break:60});PB.wk.dirty=true;pbDraw()">+ Shift</button>` : ''}
+      ${offKind ? reqHtml : ''}
+      ${offKind && (day.shifts || []).length && !inf.working ? '<div class="small" style="margin-top:4px">Shifts set, but not counted until approved.</div>' : ''}
+    </div>`;
+  }).join('');
+  const pend = PB.data.offdays.filter((r) => r.status.indexOf('pending') === 0);
+  const rest = PB.data.offdays.filter((r) => r.status.indexOf('pending') !== 0).slice(0, 20);
+  return `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;align-items:center;"><button class="btn outline sm" onclick="${nav(-7)}">←</button>
+        <h2 class="mb-0">Week of ${PB.week.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
+        <button class="btn outline sm" onclick="${nav(7)}">→</button></div>
+      <span class="small">${PB.wk.custom ? '<span class="badge blue">Set for this week</span>' : '<span class="badge gray">Default week</span>'} · ${escapeHtml(PB.data.co)}</span></div>
+    <p class="small" style="margin-top:6px;">Operating hours change week to week — set this week's shifts (or leave the default). Capacity per day follows the number of shifts. Holidays (national and local) and rest days are off: to work one, request approval — manager, then Head of Plant Operations, then Managing Director. Only then does the schedule count that day.</p>
+    ${canEdit ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;"><span class="small" style="align-self:center">Quick fill:</span>${WC_PRESETS.map((p, i) => `<button class="btn outline sm" onclick="pbPreset(${i})">${escapeHtml(p[0])}</button>`).join('')}</div>` : ''}
+    <div class="wc-week">${cols}</div>
+    ${canEdit ? `<input type="text" id="wcNote" placeholder="Note for this week (optional, e.g. rush for Valera job)" value="${escapeHtml(PB.wk.note)}" style="margin-top:8px;" oninput="PB.wk.note=this.value">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn primary sm" onclick="pbSaveWeek(false)">Save this week</button>
+        ${PB.wk.custom ? `<button class="btn outline sm" onclick="pbResetWeek()">Back to the default week</button>` : ''}
+        ${canDefault ? `<button class="btn outline sm" onclick="pbSaveWeek(true)">Save as the default week</button>` : ''}
+        ${PB.wk.dirty ? '<span class="small" style="align-self:center;color:#b33a2f">Not saved yet</span>' : ''}</div>` : ''}
+  </div>
+  <div class="card"><h2>Requests to work a holiday or rest day</h2>
+    ${pend.length || rest.length ? pend.concat(rest).map(pbOffdayRow).join('') : '<p class="small">None.</p>'}</div>`;
+}
+function pbPreset(i) {
+  const p = WC_PRESETS[i];
+  PB.wk.days = p[1].map((on) => ({ shifts: on ? p[2].map((s) => ({ name: s[0], start: s[1], end: s[2], break: s[3] })) : [] }));
+  PB.wk.dirty = true; pbDraw();
+}
+async function pbSaveWeek(asDefault) {
+  if (asDefault && !confirm('Make this the default week for ' + PB.data.co + '? Weeks you set separately keep their own hours.')) return;
+  try {
+    const days = PB.wk.days.map((d) => ({ shifts: (d.shifts || []).map((s) => ({ name: s.name || '', start: s.start, end: s.end, break: Number(s.break) || 0 })) }));
+    const { error } = await sb.rpc('pmes_calendar_save', { p_company: PB.data.co, p_week_start: asDefault ? null : PB.wk.weekIso, p_days: days, p_note: PB.wk.note || null });
+    if (error) throw error;
+    toast(asDefault ? 'Default week saved.' : 'Week saved.', 'success'); PB.wk = null; render();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function pbResetWeek() {
+  if (!confirm('Use the default week again for this week?')) return;
+  try { const { error } = await sb.rpc('pmes_calendar_reset_week', { p_company: PB.data.co, p_week_start: PB.wk.weekIso }); if (error) throw error; PB.wk = null; render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function pbOffdayRequest(iso) {
+  const reason = prompt('Why must the plant work on ' + iso + '? (e.g. rush order, client deadline). It goes to a manager, then the Head of Plant Operations, then the Managing Director.');
+  if (reason === null) return; if (!reason.trim()) return toast('A reason is needed.', 'error');
+  try { const { error } = await sb.rpc('pmes_offday_request', { p_company: PB.data.co, p_date: iso, p_reason: reason.trim() }); if (error) throw error; toast('Request sent to a manager.', 'success'); render(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+function pbOffdayRow(r) {
+  const o = OFFDAY_STATUS[r.status] || ['gray', r.status], me = String((State.me && State.me.email) || '').toLowerCase(), ap = PB.data.approver || {};
+  const already = [r.manager_by, r.hpo_by].map((x) => String(x || '').toLowerCase()).indexOf(me) >= 0;
+  const mine = (r.status === 'pending_manager' && pmesCan('manager')) || (r.status === 'pending_hpo' && ap.plant_head) || (r.status === 'pending_md' && ap.md);
+  const step = (lbl, by, at) => by ? `<span class="badge green">${lbl} ✓</span> <span class="small">${escapeHtml(by)} ${fmtDate(at)}</span>` : `<span class="badge gray">${lbl}</span>`;
+  const pending = r.status.indexOf('pending') === 0, wd = pbParse(r.work_date);
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;">
+    <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><strong>${fmtDay(wd)} ${wd.getFullYear()} — ${r.kind === 'holiday' ? '🎌 ' + escapeHtml(r.holiday_name || 'Holiday') : 'Rest day'}</strong><span class="badge ${o[0]}">${o[1]}</span></div>
+    <div class="small" style="margin-top:4px;">Reason: ${escapeHtml(r.reason)} — ${escapeHtml(r.requested_by_name || r.requested_by)}, ${fmtDate(r.requested_at)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center;">${step('Manager', r.manager_by, r.manager_at)} ${step('Head of Plant Ops', r.hpo_by, r.hpo_at)} ${step('Managing Director', r.md_by, r.md_at)}</div>
+    ${r.status === 'rejected' ? '<div class="small" style="color:#b33a2f">Rejected by ' + escapeHtml(r.rejected_by || '') + ': ' + escapeHtml(r.reject_note || '') + '</div>' : ''}
+    ${pending ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      ${mine && !already ? `<button class="btn primary sm" onclick="pbOffdayDecide('${r.id}',true)">Approve</button><button class="btn outline sm" onclick="pbOffdayDecide('${r.id}',false)">Reject</button>` : ''}
+      ${mine && already ? '<span class="small">You approved an earlier step — another person approves this one.</span>' : ''}
+      ${r.requested_by === me || pmesCan('manager') ? `<button class="btn outline sm" onclick="pbOffdayCancel('${r.id}')">Cancel request</button>` : ''}</div>` : ''}
+  </div>`;
+}
+async function pbOffdayDecide(id, ok) {
+  let note = null;
+  if (!ok) { note = prompt('Why is it rejected?'); if (note === null) return; if (!note.trim()) return toast('Give the reason.', 'error'); }
+  else if (!confirm('Approve working on this day?')) return;
+  try {
+    const { data, error } = await sb.rpc('pmes_offday_decide', { p_id: id, p_approve: ok, p_note: note }); if (error) throw error;
+    const msg = { pending_hpo: 'Approved — now the Head of Plant Operations.', pending_md: 'Approved — now the Managing Director.', approved: 'Approved — the day now counts as working.' };
+    toast(ok ? (msg[data.status] || 'Approved.') : 'Rejected.', 'success'); render();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function pbOffdayCancel(id) {
+  if (!confirm('Cancel this request?')) return;
+  try { const { error } = await sb.rpc('pmes_offday_cancel', { p_id: id }); if (error) throw error; render(); } catch (e) { toast(e.message, 'error'); }
 }

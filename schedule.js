@@ -65,44 +65,56 @@
     return d;
   }
 
-  /* jobs: [{ job, stages:[{stage_code, sequence_index, status}], components, outputs }]
-     capacity: { [stage_code]: { daily_capacity, unit, workdays_per_week } }
+  /* jobs: [{ job, stages:[{stage_code, sequence_index, status}], components, outputs, doneByStage? }]
+     capacity: { [stage_code]: { daily_capacity, unit, workdays_per_week, shifts_per_day } }
+     opts.dayInfo(date) -> { working, shifts } — the plant's work calendar (2026-09-28: shifts change week to week,
+     holidays and rest days are off unless approved). A day's capacity = daily_capacity ÷ shifts_per_day × that day's shifts.
+     Without dayInfo: Sundays off (and Saturdays on a 5-day week), daily_capacity every working day.
+     doneByStage (pieces ticked done per process) replaces confirmed output when given.
      Returns { rows:[{job_code, stage_code, load, unit, remaining, days, start, end, note}], byStage:{code:{days, jobs}} } */
-  function forwardSchedule(jobs, capacity, startDate) {
-    const start = nextWorkDay(startDate || new Date(), 6);
-    const stageFree = {};   // stage_code -> next free date
-    const rows = [], byStage = {};
+  function forwardSchedule(jobs, capacity, startDate, opts) {
+    const dayInfo = (opts && opts.dayInfo) || null;
+    const start = pbDay(startDate || new Date());
+    const stageFree = {}, rows = [], byStage = {};
+    const MAXD = 370;
+    const dayCap = (cap, d) => {
+      if (dayInfo) { const di = dayInfo(d) || {}; if (!di.working) return 0; const per = cap.shifts_per_day > 0 ? cap.daily_capacity / cap.shifts_per_day : cap.daily_capacity; return per * (di.shifts || 1); }
+      const wk = cap.workdays_per_week || 6, wd = d.getDay();
+      return wd === 0 || (wk <= 5 && wd === 6) ? 0 : cap.daily_capacity;
+    };
     const ordered = jobs.slice().sort((a, b) => String(a.job.jo_approved_at || '').localeCompare(String(b.job.jo_approved_at || '')));
     ordered.forEach((j) => {
       const load = stageLoad(j.job, j.components, j.stages);
       let prevEnd = start;
       j.stages.slice().sort((a, b) => a.sequence_index - b.sequence_index).forEach((s) => {
         const l = load[s.stage_code] || { qty: 0, unit: 'pieces', pieces: 0 };
-        const done = (j.outputs || []).filter((o) => o.stage_id === s.id && o.status === 'confirmed').reduce((n, o) => n + o.pieces, 0);
+        const done = j.doneByStage ? (j.doneByStage[s.stage_code] || 0)
+          : (j.outputs || []).filter((o) => o.stage_id === s.id && o.status === 'confirmed').reduce((n, o) => n + o.pieces, 0);
         const frac = l.pieces ? Math.min(1, done / l.pieces) : 0;
         const remaining = s.status === 'complete' ? 0 : Math.round(l.qty * (1 - frac) * 100) / 100;
         const cap = capacity[s.stage_code];
-        const wk = (cap && cap.workdays_per_week) || 6;
-        let days = 0, note = '';
+        let days = 0, note = '', st = null, en = null;
         if (remaining <= 0) note = s.status === 'complete' ? 'done' : 'nothing to do';
         else if (!cap || !(cap.daily_capacity > 0)) note = 'no capacity set — not scheduled';
         else if (cap.unit !== l.unit) note = 'capacity is in ' + cap.unit + ', load is in ' + l.unit + ' — set capacity in ' + l.unit;
-        else days = Math.max(1, Math.ceil(remaining / cap.daily_capacity));
-        let st = null, en = null;
-        if (days) {
-          const free = stageFree[s.stage_code] || start;
-          st = nextWorkDay(new Date(Math.max(free.getTime(), prevEnd.getTime())), wk);
-          en = addWorkDays(st, days - 1, wk);
-          stageFree[s.stage_code] = addWorkDays(en, 1, wk);
-          prevEnd = stageFree[s.stage_code];
-          byStage[s.stage_code] = byStage[s.stage_code] || { days: 0, jobs: 0 };
-          byStage[s.stage_code].days += days; byStage[s.stage_code].jobs += 1;
+        else {
+          const d = new Date(Math.max((stageFree[s.stage_code] || start).getTime(), prevEnd.getTime()));
+          let left = remaining, guard = 0;
+          while (left > 1e-9 && guard++ < MAXD) {
+            const c = dayCap(cap, d);
+            if (c > 0) { if (!st) st = new Date(d); en = new Date(d); days++; left -= c; }
+            d.setDate(d.getDate() + 1);
+          }
+          if (left > 1e-9) { note = 'no working days found in the next year — check the work calendar'; st = en = null; days = 0; }
+          else { stageFree[s.stage_code] = new Date(d); prevEnd = new Date(d);
+            byStage[s.stage_code] = byStage[s.stage_code] || { days: 0, jobs: 0 }; byStage[s.stage_code].days += days; byStage[s.stage_code].jobs += 1; }
         }
         rows.push({ job_code: j.job.job_code, job_id: j.job.id, stage_code: s.stage_code, load: l.qty, unit: l.unit, remaining, days, start: st, end: en, note });
       });
     });
     return { rows, byStage, start };
   }
+  function pbDay(x) { const d = new Date(x); d.setHours(0, 0, 0, 0); return d; }
 
   root.PmesSchedule = { stageLoad, forwardSchedule, addWorkDays, nextWorkDay };
 })(typeof window !== 'undefined' ? window : globalThis);
