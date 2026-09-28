@@ -51,8 +51,9 @@ header.topbar{
   z-index:10;
 }
 header.topbar .brand{display:flex;flex-direction:column;line-height:1.15;}
-header.topbar .brand .mark{font-size:11px;letter-spacing:.14em;color:#9fb4cc;font-weight:700;}
-header.topbar .brand .title{font-size:17px;font-weight:700;}
+header.topbar .brand .mark{font-size:10.5px;letter-spacing:.2px;color:#c3d2e3;font-weight:500;white-space:nowrap;}
+header.topbar .brand .name{font-size:24px;font-weight:800;letter-spacing:1.5px;line-height:1.05;}
+header.topbar .title{font-size:15px;font-weight:600;margin-left:14px;padding-left:14px;border-left:1px solid rgba(255,255,255,.3);color:#dbe6f2;}
 header.topbar .conn{display:flex;align-items:center;gap:6px;font-size:12px;color:#b9c8d8;}
 header.topbar .dot{width:8px;height:8px;border-radius:50%;background:var(--green);}
 header.topbar .dot.off{background:var(--red);}
@@ -541,8 +542,9 @@ tr.now td{background:#fff8e6;}
 @media (max-width:600px){
   header.topbar{padding:10px 12px;}
   .rtmo-logo{height:30px !important;margin-right:8px !important;padding:1px 4px !important;}
-  header.topbar .brand .mark{font-size:9px;}
-  header.topbar .brand .title{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;}
+  header.topbar .brand .name{font-size:20px;}
+  header.topbar .brand .mark{font-size:9px;white-space:normal;max-width:36vw;}
+  header.topbar .title{font-size:13px;margin-left:8px;padding-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26vw;}
   #connLabel{display:none;}
   #userChip{max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;}
 }
@@ -555,9 +557,10 @@ tr.now td{background:#fff8e6;}
     <div style="display:flex;align-items:center;">
     <img src="rtmo-logo.png" alt="RTmo Digital Solutions" class="rtmo-logo" title="RTmo Digital Solutions">
     <div class="brand">
-      <span class="mark">MODCRAFT PMES</span>
-      <span class="title" id="screenTitle">Jobs</span>
+      <span class="name">PMES</span>
+      <span class="mark">Product Manufacturing Execution System</span>
     </div>
+    <span class="title" id="screenTitle">Jobs</span>
     </div>
     <div class="conn">
       <span class="dot" id="connDot"></span>
