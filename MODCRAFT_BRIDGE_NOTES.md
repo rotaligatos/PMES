@@ -407,15 +407,15 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 - Modcraft `modcraft_jo_progress`: schedule_status, planned dates per process (only once approved), process JO status.
 
 ## 2026-09-28 — Work calendar, holidays, off-day approval, two-step schedule approval
-- Operating hours are not fixed:  (one default week per plant) and  (any week set differently:
-  1–3 shifts, compressed weeks). Days are Monday-first, each {shifts:[{name,start,end,break}]}.  (production engineer+;
-  the default week manager+), .
-- Holidays: national (settings PH_HOLIDAYS, synced) + local per plant (CONFIG ordersSla.companies[..].localHolidays), via .
-   gives each day {shifts, holiday, off_kind holiday|restday, request, working}. A rest day = a day the
-  DEFAULT week has no shift. Working a holiday or rest day needs : manager → Head of Plant Operations
+- Operating hours are not fixed: `pmes_work_default` (one default week per plant) and `pmes_work_weeks` (any week set differently:
+  1–3 shifts, compressed weeks). Days are Monday-first, each {shifts:[{name,start,end,break}]}. `pmes_calendar_save` (production engineer+;
+  the default week manager+), `pmes_calendar_reset_week`.
+- Holidays: national (settings PH_HOLIDAYS, synced) + local per plant (CONFIG ordersSla.companies[..].localHolidays), via `pmes_holidays`.
+  `pmes_calendar_range(company, from, to)` gives each day {shifts, holiday, off_kind holiday|restday, request, working}. A rest day = a day the
+  DEFAULT week has no shift. Working a holiday or rest day needs `pmes_offday_requests`: manager → Head of Plant Operations
   (adm_user_caps.is_plant_head) → Managing Director (adm_user_caps.is_md_approver), three different people; only then the day counts.
-- Schedule dates cannot start or end on a non-working day (, ). Approval is now two steps:
+- Schedule dates cannot start or end on a non-working day (`pmes_schedule_save`, `pmes_schedule_approve`). Approval is now two steps:
   supervisor, then a manager (different people); schedule_status draft → supervisor_ok → approved. Hand-out still needs 'approved'.
--  forwardSchedule(jobs, capacity, start, {dayInfo}) consumes each day's capacity = daily_capacity ÷ shifts_per_day × that day's
+- `schedule.js` forwardSchedule(jobs, capacity, start, {dayInfo}) consumes each day's capacity = daily_capacity ÷ shifts_per_day × that day's
   shifts, skipping days that are not working; doneByStage (pieces ticked) replaces confirmed output. Tests in schedule.test.js.
 - Screen: Schedule → Work calendar (week editor, quick-fill presets, requests with the approval chain). Today's hourly plan uses today's shifts.
