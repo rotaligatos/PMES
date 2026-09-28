@@ -5,12 +5,12 @@
 
 const JOB_TABS = [
   ['overview', 'Overview'], ['materials', 'Materials'], ['cutting', 'Boards & cutting'],
-  ['production', 'Production'], ['parts', 'Parts'], ['packing', 'Packing'],
+  ['production', 'Production'], ['parts', 'Pieces'], ['packing', 'Packing'],
 ];
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
-  let job, stages, components, materials, materialSummary, joReviews = [], outputs = [], machines = [], readiness = [];
+  let job, stages, components, materials, materialSummary, joReviews = [], outputs = [], machines = [], readiness = [], done = [];
   try {
     [job, stages, components, materials, materialSummary, joReviews, outputs, machines] = await Promise.all([
       Data.getJob(jobId), Data.listJobStages(jobId), Data.listComponents(jobId),
@@ -18,6 +18,7 @@ async function renderJobDetail(main) {
       Data.listStageOutputs(jobId).catch(() => []), Data.listMachines().catch(() => []),
     ]);
     State.jobMRs = await Data.listJobMRs(jobId).catch(() => []);
+    done = await loadPieceDone(jobId).catch(() => []);
     State.jobMaterialState = await Data.jobMaterialState(jobId).catch(() => ({ state: 'no_mrf' }));
     readiness = await Data.getJobMaterialReadiness(jobId).catch(() => []);
   } catch (e) {
@@ -26,12 +27,13 @@ async function renderJobDetail(main) {
   }
   const materialsReady = materialSummary ? materialSummary.materials_ready : false;
   State.jd = {
-    job, stages, components, materials, readiness, joReviews, outputs, machines, materialsReady,
+    job, stages, components, materials, readiness, joReviews, outputs, machines, materialsReady, done,
     route: State.routeMappings.find((r) => r.code === job.route_code),
     canCut: job.job_active && materialsReady,
   };
   if (State.jobTabNext) State.jobTab = State.jobTabNext;
   else if (State.jdJobId !== jobId) State.jobTab = 'overview';
+  if (State.jdJobId !== jobId && !State.jobTabNext) { PieceState.stage = ''; PieceState.notDone = false; PieceState.q = ''; PieceState.sel = {}; }
   State.jdJobId = jobId; State.jobTabNext = null;
 
   document.getElementById('screenTitle').textContent = job.job_code;
@@ -60,7 +62,7 @@ function _jobTabFlag(t) {
   if (t === 'overview') return ['received', 'checked', 'supervisor_ok', 'returned'].includes(j.jo_review_status || 'received') ? '•' : '';
   if (t === 'materials') return ms.state === 'complete' || ms.state === 'no_mrf' ? '' : '•';
   if (t === 'production') return d.outputs.some((o) => o.status === 'entered') ? '•' : '';
-  if (t === 'parts') return d.components.length ? String(d.components.length) : '';
+  if (t === 'parts') { const left = d.components.filter((c) => c.status !== 'complete' && c.status !== 'scrapped').length; return d.components.length ? (left ? left + ' left' : '✓') : ''; }
   return '';
 }
 
@@ -72,7 +74,8 @@ function drawJobTab() {
     const f = _jobTabFlag(k);
     return `<button class="${State.jobTab === k ? 'on' : ''}" onclick="setJobTab('${k}')">${l}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
   }).join('');
-  const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady } = d;
+  const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady, done } = d;
+  const progLine = (s) => components.length ? pieceProgressLine(s, components, job, done) : _outputLine(s, components, outputs, job);
   const t = State.jobTab;
 
   if (t === 'overview') {
@@ -81,9 +84,9 @@ function drawJobTab() {
       ${renderJoReviewCard(job, joReviews)}
       ${(job.mother_jo && (job.mother_jo.boards || []).length) ? '<div id="jdBoardsSummary"></div>' : ''}
       ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
-        <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Output</th></tr></thead><tbody>
+        <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Pieces done</th></tr></thead><tbody>
         ${stages.map((s) => { const st = State.stageTypes.find((x) => x.code === s.stage_code);
-          return `<tr><td>${st ? escapeHtml(st.label) : s.stage_code}</td><td>${badgeForStageStatus(s.status)}</td><td class="small">${_outputLine(s, components, outputs, job) || '—'}</td></tr>`; }).join('')}
+          return `<tr><td>${st ? escapeHtml(st.label) : s.stage_code}</td><td>${badgeForStageStatus(s.status)}</td><td class="small" style="min-width:260px">${progLine(s) || '—'}</td></tr>`; }).join('')}
         </tbody></table>
         ${joApproved(job) ? '<button class="btn outline sm" style="margin-top:8px;" onclick="setJobTab(\'production\')">Go to Production →</button>' : ''}</div>` : ''}
       <div class="card"><h2>Job notes</h2><p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p></div>`;
@@ -143,7 +146,7 @@ function drawJobTab() {
           const cls = s.status === 'complete' ? 'complete' : s.status === 'delayed' ? 'delayed' : (s.status === 'in_progress' || s.status === 'queued') ? 'current' : '';
           return `<div class="stage-item ${cls}"><div class="stage-num">${idx + 1}</div><div class="stage-body">
               <div class="stage-name">${stageType ? escapeHtml(stageType.label) : s.stage_code}</div>
-              <div class="stage-meta">${badgeForStageStatus(s.status)}${s.operator ? ' · ' + escapeHtml(s.operator) : ''}${s.delay_flag ? ' · ⚠ ' + escapeHtml(s.delay_reason || 'delayed') : ''}${_outputLine(s, components, outputs, job)}</div></div>
+              <div class="stage-meta">${badgeForStageStatus(s.status)}${s.operator ? ' · ' + escapeHtml(s.operator) : ''}${s.delay_flag ? ' · ⚠ ' + escapeHtml(s.delay_reason || 'delayed') : ''}</div>${progLine(s)}</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
               ${components.length && joApproved(job) ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
               ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
@@ -151,8 +154,12 @@ function drawJobTab() {
       ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}`;
   }
 
+  else if (t === 'parts' && components.length) {
+    body.innerHTML = '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>';
+  }
+
   else if (t === 'parts') {
-    body.innerHTML = `<div class="card"><div class="flex-between"><h2 class="mb-0">Parts ${components.length ? '(' + components.length + ')' : ''}</h2>
+    body.innerHTML = `<div class="card"><div class="flex-between"><h2 class="mb-0">Pieces ${components.length ? '(' + components.length + ')' : ''}</h2>
         ${canCut && stages.length > 0 && !components.length ? `<button class="btn secondary sm" onclick="openGenerateComponentsSheet('${job.id}')">+ Generate</button>` : ''}</div>
       ${components.length ? renderComponentsTable(components)
         : `<p class="small" style="margin-top:8px;">${job.mother_jo ? 'No parts yet.' : !canCut ? 'Parts are created during cutting optimization — once the job is active and its materials are ready.' : !stages.length ? 'Assign a route before generating parts.' : 'No parts yet. Tap “+ Generate”.'}</p>`}</div>`;

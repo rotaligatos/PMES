@@ -378,3 +378,16 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 - Cutting optimizer and extra-board requests belong to the office staff who review the JO (role `staff`) or supervisor+.
   The materials person inspects boards only: the optimizer buttons are hidden for them, `pmes_cut_plan_save` already
   refused them, and `pmes_board_request_create` now refuses them too (migration `pmes_board_request_office_staff_only`).
+
+## 2026-09-28 — Every piece marked done at each process
+- New table `pmes_component_done` (component × process, who/when, via manual|scan, note); read by any PMES user, written only
+  through `pmes_component_mark(p_components[], p_stage, p_done, p_note, p_via)`: operator+ (operators only at their own
+  stations), JO must be approved, the process must be on the piece's route, undo needs a reason and is the marker's or a
+  supervisor's. Every mark/undo also lands in `pmes_component_stage_events` (`done` / `undone`).
+- Process status now follows the pieces (`pmes_stage_sync`): all planned pieces done → complete, some → in progress, an undo
+  moves it back. Jobs without pieces still follow confirmed output counts. `pmes_stage_complete_guard` refuses setting a
+  process to Complete by hand while any of its pieces are not done.
+- Screens: job sub-tab "Parts" → **Pieces**: a grid of pieces × processes (✓ done, ○ not done, — not on route), tap to mark,
+  tap ✓ to undo, tick several + mark together, search, "not done only". Overview/Production show "N / M pieces done (x%)"
+  and name the pieces not done. Scan station marks the scanned piece done (via 'scan') and shows its route with ticks.
+- Modcraft `modcraft_jo_progress` now reports pieces done and a `not_done` list per process.
