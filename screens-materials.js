@@ -54,7 +54,7 @@ async function drawMaterials() {
           <div><strong class="mono">${escapeHtml(j.job_code)}</strong> <span class="badge ${m[0]}">${m[1]}</span>
             <div class="small">${escapeHtml(j.client || '—')}${j.project ? ' — ' + escapeHtml(j.project) : ''}${j.serial ? ' · ' + escapeHtml(j.serial) : ''} · ${escapeHtml(j.company || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button><button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}
+            ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button>${_bdCanRun() ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}` : ''}
             ${j.board_requests_open ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">${j.board_requests_open} extra-board request(s)</button>` : ''}
             <button class="btn outline sm" onclick="goToJob('${j.job_id}','materials')">Open job</button>
           </div>

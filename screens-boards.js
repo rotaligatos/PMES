@@ -93,7 +93,7 @@ async function renderBoardsCards(job, el) {
       ${insp}</div>
     <div class="card" id="bdOptimize"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
       ${_bdCanRun() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
-      <p class="small" style="margin-top:6px;">Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
+      <p class="small" style="margin-top:6px;"><strong>Run by the office staff who review the Job Order</strong> (or a supervisor and above), after the materials person has inspected the boards. Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
       ${run ? _bdRunHtml(run) : ''}
       ${planRows ? `<table class="comp-table" style="margin-top:10px;"><thead><tr><th>Plan</th><th>Status</th><th>Extra boards</th><th>By</th><th></th></tr></thead><tbody>${planRows}</tbody></table>` : '<p class="small">No plan saved yet — the Modcraft layout is used until one is adopted.</p>'}
     </div>
@@ -207,15 +207,21 @@ function _renderInsp() {
   const defs = s.defects.map((d, i) => `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" fill="rgba(220,40,40,.35)" stroke="#c0271d" stroke-width="${2 / scale}"></rect>
     <text x="${d.x + 4 / scale}" y="${d.y + 14 / scale}" font-size="${12 / scale}" fill="#8a1a12">${i + 1}</text>`).join('');
   openSheet(`<div class="sheet-title">${escapeHtml(s.label)} — board ${s.boardNo}</div>
-    <p class="small">Drag on the board to mark a defect (${s.w}×${s.h}mm; top = start of the board length). Pick the type first.</p>
+    <p class="small">Mark each defect by its position, measured from the board's top-left corner (${s.w}×${s.h}mm): <strong>X</strong> = across the width (0–${s.w}), <strong>Y</strong> = along the length from the top / start (0–${s.h}). Type it below, or drag on the drawing and correct the numbers.</p>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
       <svg id="inspSvg" width="${pw}" height="${ph}" viewBox="0 0 ${s.w} ${s.h}" style="background:#fff;border:2px solid #8a7a63;touch-action:none;cursor:crosshair">${defs}<rect id="inspDrag" x="0" y="0" width="0" height="0" fill="rgba(220,40,40,.2)" stroke="#c0271d" stroke-dasharray="${6 / scale}"></rect></svg>
       <div style="flex:1;min-width:200px;">
         <label class="field-label">Defect type</label>
         <select id="inspType" onchange="window._insp.type=this.value">${DEFECT_TYPES.map(([v, t]) => `<option value="${v}" ${s.type === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        <div style="margin-top:8px;">${s.defects.length ? s.defects.map((d, i) => `<div class="small" style="display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px solid var(--border);">
-          <span><strong>${i + 1}.</strong> ${escapeHtml((DEFECT_TYPES.find((t) => t[0] === d.type) || [0, d.type])[1])} — ${Math.round(d.w)}×${Math.round(d.h)} at ${Math.round(d.x)},${Math.round(d.y)}</span>
-          <button class="btn outline sm" style="padding:2px 8px;min-height:auto" onclick="window._insp.defects.splice(${i},1);_renderInsp()">×</button></div>`).join('') : '<p class="small">No defects marked.</p>'}</div>
+        <div class="insp-add">
+          <div class="small" style="font-weight:700;margin-bottom:4px;">Add a defect by measurement (mm)</div>
+          <div class="insp-grid"><label>X (across)<input type="number" id="inspX" min="0" max="${s.w}" step="1" placeholder="0"></label><label>Y (along length)<input type="number" id="inspY" min="0" max="${s.h}" step="1" placeholder="0"></label>
+            <label>Width<input type="number" id="inspW" min="1" step="1" placeholder="30"></label><label>Length<input type="number" id="inspH" min="1" step="1" placeholder="30"></label></div>
+          <button class="btn outline sm" style="margin-top:6px;" onclick="inspAddTyped()">+ Add defect</button></div>
+        <div style="margin-top:8px;">${s.defects.length ? '<div class="small" style="font-weight:700;">Marked defects — edit the numbers if needed</div>' + s.defects.map((d, i) => `<div class="insp-def"><div class="insp-def-top">
+          <strong>${i + 1}.</strong> <select onchange="window._insp.defects[${i}].type=this.value">${DEFECT_TYPES.map(([v, t]) => `<option value="${v}" ${d.type === v ? 'selected' : ''}>${t}</option>`).join('')}</select><button class="btn outline sm" style="padding:2px 8px;min-height:auto" onclick="window._insp.defects.splice(${i},1);_renderInsp()">×</button></div>
+          <div class="insp-grid4"><label>X<input type="number" value="${Math.round(d.x)}" onchange="inspSetDef(${i},'x',this.value)"></label><label>Y<input type="number" value="${Math.round(d.y)}" onchange="inspSetDef(${i},'y',this.value)"></label>
+          <label>W<input type="number" value="${Math.round(d.w)}" onchange="inspSetDef(${i},'w',this.value)"></label><label>L<input type="number" value="${Math.round(d.h)}" onchange="inspSetDef(${i},'h',this.value)"></label></div></div>`).join('') : '<p class="small">No defects marked.</p>'}</div>
         <label class="field-label" style="margin-top:10px;">Board status</label>
         <select id="inspStatus" onchange="window._insp.status=this.value">
           <option value="ok" ${s.status === 'ok' ? 'selected' : ''}>OK — usable</option>
@@ -235,6 +241,30 @@ function _renderInsp() {
     start = null;
     if (d.w < 5 || d.h < 5) { d.w = Math.max(d.w, 30); d.h = Math.max(d.h, 30); }   // a tap marks a small spot
     s.defects.push(d); if (s.status === 'ok') s.status = 'defect'; _renderInsp(); });
+}
+// Typed position (Rommel 2026-09-28: exact X/Y matters for the optimizer). Kept inside the board.
+function _inspClamp(d) {
+  const s = window._insp;
+  // The measured position is the fact; a size running past the edge is trimmed, the position never moved.
+  d.x = Math.max(0, Math.min(Math.round(d.x), s.w - 1)); d.y = Math.max(0, Math.min(Math.round(d.y), s.h - 1));
+  d.w = Math.max(1, Math.min(Math.round(d.w), s.w - d.x)); d.h = Math.max(1, Math.min(Math.round(d.h), s.h - d.y));
+  return d;
+}
+function inspAddTyped() {
+  const s = window._insp, v = (id) => document.getElementById(id).value;
+  if (v('inspX') === '' || v('inspY') === '') return toast('Enter X and Y of the defect.', 'error');
+  const x = Number(v('inspX')), y = Number(v('inspY')), w = v('inspW') === '' ? 30 : Number(v('inspW')), h = v('inspH') === '' ? 30 : Number(v('inspH'));
+  if (![x, y, w, h].every((n) => isFinite(n)) || x < 0 || y < 0 || w <= 0 || h <= 0) return toast('Positions must be 0 or more, sizes more than 0.', 'error');
+  if (x >= s.w || y >= s.h) return toast('That position is outside the board (' + s.w + '×' + s.h + 'mm).', 'error');
+  s.type = (document.getElementById('inspType') || {}).value || s.type;
+  s.defects.push(_inspClamp({ x, y, w, h, type: s.type, note: '' }));
+  if (s.status === 'ok') s.status = 'defect';
+  _renderInsp();
+}
+function inspSetDef(i, k, val) {
+  const d = window._insp.defects[i]; if (!d) return;
+  const n = Number(val); if (!isFinite(n)) return;
+  d[k] = n; _inspClamp(d); _renderInsp();
 }
 async function saveBoardInspect() {
   const s = window._insp;
@@ -262,5 +292,5 @@ async function renderBoardsSummary(job, el) {
       <span class="small">${insp} of ${planned} boards inspected${dfc ? ' · ' + dfc + ' with defects' : ''}${rej ? ' · ' + rej + ' rejected' : ''} · ${adopted ? 'cutting plan v' + adopted.version + ' adopted' : (plans.length ? plans.length + ' plan(s) saved, none adopted' : 'no cutting plan yet')}</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn ${insp < planned ? 'primary' : 'outline'} sm" onclick="goToBoards('${job.id}','bdInspect')">Inspect boards / mark defects</button>
-      <button class="btn ${insp >= planned && !adopted ? 'primary' : 'outline'} sm" onclick="goToBoards('${job.id}','bdOptimize')">Cutting optimizer</button></div></div>`;
+      ${_bdCanRun() ? `<button class="btn ${insp >= planned && !adopted ? 'primary' : 'outline'} sm" onclick="goToBoards('${job.id}','bdOptimize')">Cutting optimizer</button>` : ''}</div></div>`;
 }

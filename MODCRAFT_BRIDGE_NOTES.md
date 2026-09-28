@@ -370,3 +370,11 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 - Bucket `pmes-receipts` (private, images, 10 MB): upload = materials role or supervisor+; read = any PMES user, KEYSTONE user, or Modcraft admin tier. No update/delete (evidence).
 - `pmes_job_mrs` returns the new fields. Screen: per-item OK / Short / Damaged buttons, note, camera photo on Damaged, "View photo" after. An MRF KEYSTONE has not processed says so and lists its lines.
 - Job sub-tab "Cutting" renamed "Boards & cutting"; Overview has a Boards & cutting card (inspected count, plan state, Inspect boards / Cutting optimizer buttons); the Materials page has the same two buttons. `goToBoards(jobId, 'bdInspect'|'bdOptimize')` opens and scrolls.
+
+## 2026-09-28 — Defect position typed in mm; optimizer is the office staff's job
+- Board inspection: each defect can be entered as X (across the width, from the left) / Y (along the length, from the
+  top = start) / Width / Length in mm, and every marked defect's numbers can be corrected. Dragging still works.
+  A size running past the board edge is trimmed; the measured position is never moved.
+- Cutting optimizer and extra-board requests belong to the office staff who review the JO (role `staff`) or supervisor+.
+  The materials person inspects boards only: the optimizer buttons are hidden for them, `pmes_cut_plan_save` already
+  refused them, and `pmes_board_request_create` now refuses them too (migration `pmes_board_request_office_staff_only`).
