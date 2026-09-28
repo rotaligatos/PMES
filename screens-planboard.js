@@ -184,8 +184,9 @@ async function pbApprove(jobId) {
   catch (e) { toast(e.message, 'error'); }
 }
 
-/* ---- Gantt: ONE line per mother JO. Each process is a coloured bar on that line (colour key above);
-   bars that overlap in time drop to a thin second lane so none hides another. ---- */
+/* ---- Gantt: TWO lines per mother JO — Plan and Actual. Each process has its own colour (key above).
+   A day shared by several processes is split into side-by-side stripes, so each line stays one row.
+   Right-hand remark: planned finish (plan line) and finish projected from the pace of pieces done (actual line). ---- */
 const PB_COLORS = ['#3d6fb6', '#e0913a', '#2e9e8f', '#8e5bb5', '#c9463d', '#6b8e23', '#d4a017', '#5b6770', '#b5577f', '#2b8fd8', '#7a5230', '#1b7f5a'];
 function pbStageColor(code) {
   const i = State.stageTypes.findIndex((t) => t.code === code);
@@ -193,56 +194,97 @@ function pbStageColor(code) {
   let h = 0; for (const ch of String(code)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PB_COLORS[h % PB_COLORS.length];
 }
+// Working day per the plant's work calendar; with no calendar row, Mon–Sat.
+function pbIsWorking(d) { const i = pbDayInfo(d); return i ? !!i.working : pbDay(d).getDay() !== 0; }
+function pbAddWorkDays(from, n) { const d = pbDay(from); let k = 0, guard = 0; while (k < n && guard++ < 800) { d.setDate(d.getDate() + 1); if (pbIsWorking(d)) k++; } return d; }
+function pbWorkDaysBetween(a, b) { let n = 0; const d = pbDay(a), e = pbDay(b); let guard = 0; while (d <= e && guard++ < 800) { if (pbIsWorking(d)) n++; d.setDate(d.getDate() + 1); } return n; }
+
+// Plan and actual spans per process, the planned finish, and the finish projected from the pace so far.
+function pbJobTimeline(J) {
+  const today = pbDay(new Date());
+  const plan = [], act = [];
+  let planEnd = null, anyPlanDates = false, first = null, lastDone = null, doneSteps = 0, totalSteps = 0;
+  J.pjos.forEach((p) => {
+    const s = p._s || (p._rec && p._rec.start && pbDay(p._rec.start)), e = p._e || (p._rec && p._rec.end && pbDay(p._rec.end)) || s;
+    if (s) { plan.push({ code: p.stage_code, s: pbDay(s), e: pbDay(e), rec: !p._s, p }); if (!planEnd || pbDay(e) > planEnd) planEnd = pbDay(e); if (p._s) anyPlanDates = true; }
+    const dates = (p._doneRows || []).map((r) => pbDay(r.done_at)).sort((a, b) => a - b);
+    const pieces = p.planned_pieces || 0; totalSteps += pieces; doneSteps += Math.min(pieces || dates.length, dates.length);
+    if (dates.length) {
+      const a = dates[0], z = p.status === 'done' || (pieces && dates.length >= pieces) ? dates[dates.length - 1] : today;
+      act.push({ code: p.stage_code, s: a, e: z < a ? a : z, p });
+      if (!first || a < first) first = a; if (!lastDone || dates[dates.length - 1] > lastDone) lastDone = dates[dates.length - 1];
+    }
+  });
+  let proj = null, projNote = '';
+  const remaining = Math.max(0, totalSteps - doneSteps);
+  if (totalSteps && remaining === 0) { proj = lastDone; projNote = 'Finished'; }
+  else if (first && doneSteps > 0) {
+    const days = Math.max(1, pbWorkDaysBetween(first, today));
+    const pace = doneSteps / days; // piece-steps per working day, all processes together
+    proj = pbAddWorkDays(today, Math.ceil(remaining / pace)); projNote = 'Projected finish';
+  }
+  return { plan, act, planEnd, anyPlanDates, proj, projNote, pace: first && doneSteps ? doneSteps / Math.max(1, pbWorkDaysBetween(first, today)) : 0, doneSteps, totalSteps };
+}
+
 function pbGantt(jobs) {
   const today = pbDay(new Date());
+  const TL = jobs.map((J) => pbJobTimeline(J));
   let lo = new Date(today), hi = new Date(today); lo.setDate(lo.getDate() - 3); hi.setDate(hi.getDate() + 14);
-  jobs.forEach((J) => J.pjos.forEach((p) => { const s = p._s || (p._rec && p._rec.start), e = p._e || (p._rec && p._rec.end); if (s && s < lo) lo = pbDay(s); if (e && e > hi) hi = pbDay(e); }));
-  const days = Math.min(70, Math.round((hi - lo) / 864e5) + 1), W = 100 / days;
-  const dayHead = Array.from({ length: days }, (_, i) => { const d = new Date(lo); d.setDate(d.getDate() + i); const inf = pbDayInfo(d) || {};
+  TL.forEach((t) => { t.plan.concat(t.act).forEach((x) => { if (x.s < lo) lo = pbDay(x.s); if (x.e > hi) hi = pbDay(x.e); }); if (t.proj && t.proj > hi) hi = pbDay(t.proj); });
+  const days = Math.min(90, Math.round((hi - lo) / 864e5) + 1), W = 100 / days;
+  const dayList = Array.from({ length: days }, (_, i) => { const d = new Date(lo); d.setDate(d.getDate() + i); return d; });
+  const dayHead = dayList.map((d, i) => { const inf = pbDayInfo(d) || {};
     const cls = inf.working === false ? 'off' : inf.request === 'approved' ? 'ot' : '';
     const tip = inf.holiday ? inf.holiday : inf.off_kind === 'restday' ? 'Rest day' : '';
     return `<div class="gd ${cls} ${+d === +today ? 'tod' : ''}" style="width:${W}%" title="${escapeHtml(tip + (inf.request ? ' · ' + (OFFDAY_STATUS[inf.request] || [0, inf.request])[1] : '') + (inf.working ? ' · ' + (inf.shifts || []).length + ' shift(s)' : ' · not working'))}">${d.getDate() === 1 || i === 0 ? '<b>' + d.toLocaleDateString(undefined, { month: 'short' }) + '</b><br>' : ''}${d.getDate()}${inf.working && (inf.shifts || []).length > 1 ? '<div class="gs">×' + inf.shifts.length + '</div>' : ''}</div>`; }).join('');
-  const L = (d) => Math.max(0, (pbDay(d) - lo) / 864e5), R = (d) => Math.min(days, (pbDay(d) - lo) / 864e5 + 1);
+  const offCells = dayList.map((d, i) => pbIsWorking(d) ? '' : `<div class="g-offday" style="left:${i * W}%;width:${W}%"></div>`).join('');
   const todayLeft = ((today - lo) / 864e5 + 0.5) * W;
-  // Colour key: only the processes that appear, in production order.
+  // One line: per day, the processes on it, drawn as side-by-side stripes.
+  const line = (spans, kind, approved) => dayList.map((d, i) => {
+    const on = spans.filter((x) => x.s <= d && d <= x.e); if (!on.length) return '';
+    const tip = on.map((x) => pbStageLabel(x.code) + ' (' + x.code + ')' + (kind === 'plan' ? (x.rec ? ' recommended ' : ' planned ') + fmtDay(x.s) + ' → ' + fmtDay(x.e) : ' actual ' + fmtDay(x.s) + ' → ' + (x.p.status === 'done' ? fmtDay(x.e) : 'ongoing')) + ' · ' + x.p._done + '/' + x.p.planned_pieces + ' pieces').join('\n');
+    return `<div class="g-day ${kind}" style="left:${i * W}%;width:${W}%" title="${escapeHtml(fmtDay(d) + '\n' + tip)}">${on.map((x) => `<i class="${x.rec ? 'rec' : ''}" style="background:${pbStageColor(x.code)}"></i>`).join('')}</div>`;
+  }).join('');
   const codes = []; jobs.forEach((J) => J.pjos.forEach((p) => { if (codes.indexOf(p.stage_code) < 0) codes.push(p.stage_code); }));
   codes.sort((a, b) => State.stageTypes.findIndex((t) => t.code === a) - State.stageTypes.findIndex((t) => t.code === b));
   const legend = `<div class="g-legend">${codes.map((c) => `<span class="g-key"><i style="background:${pbStageColor(c)}"></i><b>${escapeHtml(c)}</b> ${escapeHtml(pbStageLabel(c))}</span>`).join('')}</div>
-    <div class="g-legend" style="margin-top:6px"><span class="g-key"><i class="k-fill"></i>solid part = pieces done</span><span class="g-key"><i class="k-draft"></i>dashed = schedule not approved</span><span class="g-key"><i class="k-rec"></i>faint = recommended only</span>
-    <span class="g-key"><i class="k-late"></i>red ring = behind plan</span><span class="g-key">✓ = done</span>
-    <span class="g-key"><i class="k-off"></i>grey day = not working</span><span class="g-key"><i class="k-tod"></i>today</span>
-    <span class="g-key"><span class="g-dot" style="background:var(--text-dim)"></span>no schedule <span class="g-dot" style="background:var(--amber)"></span>draft <span class="g-dot" style="background:#1f5fa8"></span>supervisor OK <span class="g-dot" style="background:var(--green)"></span>approved</span></div>`;
-  const row = (J) => {
-    const approved = J.job.schedule_status === 'approved', ss = J.job.schedule_status || 'none', sp = SCHED_STATUS[ss] || SCHED_STATUS.none;
-    // Bars, then greedy lanes so overlapping processes don't cover each other.
-    const bars = J.pjos.map((p) => { const s = p._s || (p._rec && p._rec.start), e = p._e || (p._rec && p._rec.end) || s;
-      return s ? { p, l: L(s), r: Math.max(L(s) + 0.6, R(e)), rec: !p._s, s, e } : null; }).filter(Boolean).sort((a, b) => a.l - b.l);
-    const laneEnd = []; bars.forEach((b) => { let k = laneEnd.findIndex((x) => x <= b.l + 0.001); if (k < 0) { k = laneEnd.length; laneEnd.push(0); } laneEnd[k] = b.r; b.lane = k; });
-    const lanes = Math.max(1, laneEnd.length), lh = lanes === 1 ? 22 : lanes === 2 ? 17 : 13;
-    const barHtml = bars.map((b) => { const p = b.p, col = pbStageColor(p.stage_code);
-      const cls = ['g-pb', b.rec ? 'rec' : '', !b.rec && !approved ? 'draft' : '', p._late ? 'late' : '', p.status === 'done' ? 'done' : ''].join(' ');
-      const crew = [p.machine_name].concat(p.operators || []).filter(Boolean).join(', ');
-      const tip = pbStageLabel(p.stage_code) + ' (' + p.stage_code + ') · ' + (b.rec ? 'recommended ' : '') + fmtDay(b.s) + ' → ' + fmtDay(b.e) + ' · ' + p._done + '/' + p.planned_pieces + ' pieces · ' + (PJO_STATUS[p.status] || [0, p.status])[1] + (p._late ? ' · BEHIND PLAN' : '') + (crew ? ' · ' + crew : '');
-      return `<div class="${cls}" style="left:${b.l * W}%;width:${(b.r - b.l) * W}%;top:${6 + b.lane * (lh + 2)}px;height:${lh}px;--c:${col}" title="${escapeHtml(tip)}"><div class="g-pf" style="width:${b.rec ? 0 : p._pct}%"></div>${lh >= 15 ? `<span>${p.status === 'done' ? '✓ ' : ''}${escapeHtml(p.stage_code)}</span>` : ''}</div>`; }).join('');
-    const h = 12 + lanes * (lh + 2);
+    <div class="g-legend" style="margin-top:6px"><span class="g-key"><b>Plan</b> = planned dates</span><span class="g-key"><b>Actual</b> = first to last piece done (still running = up to today)</span>
+    <span class="g-key"><i class="k-split"></i>striped day = processes sharing that day</span><span class="g-key"><i class="k-rec"></i>faint = recommended only</span>
+    <span class="g-key"><i class="k-off"></i>grey = not a working day</span><span class="g-key"><i class="k-tod"></i>today</span></div>`;
+  const row = (J, t) => {
+    const ss = J.job.schedule_status || 'none', sp = SCHED_STATUS[ss] || SCHED_STATUS.none, approved = ss === 'approved';
     const ap = J.job.schedule_supervisor_at ? 'Supervisor: ' + (J.job.schedule_supervisor_by || '') + ' ' + fmtDate(J.job.schedule_supervisor_at) + (ss === 'approved' && J.job.schedule_approved_at ? ' · Manager: ' + (J.job.schedule_approved_by || '') + ' ' + fmtDate(J.job.schedule_approved_at) : '') : '';
     const canPlan = pmesCan('production_engineer'), me = String((State.me && State.me.email) || '').toLowerCase();
     const hasDates = J.pjos.filter((p) => p.planned_pieces > 0 && p.status !== 'done').every((p) => p.planned_start);
     const apBtn = ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
       : ss === 'supervisor_ok' && pmesCan('manager') && String(J.job.schedule_supervisor_by || '').toLowerCase() !== me ? 'Approve (manager)' : '';
-    const where = !J.pjos.length ? 'No process JOs' : !J.actualAt ? 'All done' : 'At ' + pbStageLabel(J.actualAt.stage_code);
     const dot = { gray: 'var(--text-dim)', amber: 'var(--amber)', blue: '#1f5fa8', green: 'var(--green)' }[sp[0]] || 'var(--text-dim)';
     const who = J.client + (J.project ? ' — ' + J.project : '') + (J.job.quotation_serial ? ' · ' + J.job.quotation_serial : '');
-    return `<div class="g-row g-jo"><div class="g-lab">
-        <div class="g-l1"><span class="g-dot" style="background:${dot}" title="${escapeHtml(sp[1] + (ap ? ' — ' + ap : ''))}"></span><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')">${escapeHtml(J.job.job_code)}</strong>${J.late ? ' <span class="badge red" style="font-size:10px">Behind</span>' : ''}</div>
+    // Remarks
+    const planRem = t.planEnd ? `Plan finish <b>${fmtDay(t.planEnd)}</b>${t.anyPlanDates ? (approved ? '' : ' <span class="small">(not approved)</span>') : ' <span class="small">(recommended)</span>'}` : '<span class="small">No dates yet</span>';
+    let actRem = '<span class="small">Not started</span>';
+    if (t.projNote === 'Finished') {
+      const diff = t.planEnd ? pbWorkDaysBetween(t.planEnd < t.proj ? t.planEnd : t.proj, t.planEnd < t.proj ? t.proj : t.planEnd) - 1 : 0;
+      actRem = `Finished <b>${fmtDay(t.proj)}</b>${t.planEnd && +t.proj !== +t.planEnd ? ` <span class="${t.proj > t.planEnd ? 'g-late' : 'g-early'}">${t.proj > t.planEnd ? '+' : '−'}${diff} d</span>` : t.planEnd ? ' <span class="g-early">on plan</span>' : ''}`;
+    } else if (t.proj) {
+      const late = t.planEnd && t.proj > t.planEnd, early = t.planEnd && t.proj < t.planEnd;
+      const diff = t.planEnd ? pbWorkDaysBetween(late ? t.planEnd : t.proj, late ? t.proj : t.planEnd) - 1 : 0;
+      actRem = `Projected <b>${fmtDay(t.proj)}</b>${late ? ` <span class="g-late">+${diff} d late</span>` : early ? ` <span class="g-early">${diff} d early</span>` : t.planEnd ? ' <span class="g-early">on plan</span>' : ''}`;
+    }
+    const paceTip = t.pace ? `Pace so far ${t.pace.toFixed(1)} piece-steps per working day · ${t.doneSteps}/${t.totalSteps} done (every piece counted once per process). Projection = remaining ÷ pace, working days only.` : '';
+    return `<div class="g-row g-jo g-plan"><div class="g-lab">
+        <div class="g-l1"><span class="g-dot" style="background:${dot}" title="${escapeHtml(sp[1] + (ap ? ' — ' + ap : ''))}"></span><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')" title="${escapeHtml(who)}">${escapeHtml(J.job.job_code)}</strong><span class="g-kind">Plan</span></div>
         <div class="small g-l2" title="${escapeHtml(who)}">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''}</div>
-        <div class="small g-l2">${escapeHtml(where)}${canPlan ? ` · <a href="#" onclick="pbOpenEdit('${J.job.id}');return false">${PB.edit === J.job.id ? 'close' : 'edit dates'}</a>` : ''}${apBtn ? ` · <a href="#" onclick="${hasDates ? `pbApprove('${J.job.id}')` : `toast('Give every process dates first','error')`};return false">${apBtn.toLowerCase()}</a>` : ''}</div>
-      </div><div class="g-track" style="min-height:${h}px">${barHtml}<div class="g-today" style="left:${todayLeft}%"></div></div></div>
+      </div><div class="g-track">${offCells}${line(t.plan, 'plan', approved)}<div class="g-today" style="left:${todayLeft}%"></div></div><div class="g-rem">${planRem}</div></div>
+      <div class="g-row g-jo g-act"><div class="g-lab">
+        <div class="g-l1"><span class="g-kind" style="margin-left:15px">Actual</span></div>
+        <div class="small g-l2">${canPlan ? `<a href="#" onclick="pbOpenEdit('${J.job.id}');return false">${PB.edit === J.job.id ? 'close' : 'edit dates'}</a>` : ''}${apBtn ? `${canPlan ? ' · ' : ''}<a href="#" onclick="${hasDates ? `pbApprove('${J.job.id}')` : `toast('Give every process dates first','error')`};return false">${apBtn.toLowerCase()}</a>` : ''}</div>
+      </div><div class="g-track">${offCells}${line(t.act, 'act', true)}<div class="g-today" style="left:${todayLeft}%"></div></div><div class="g-rem" title="${escapeHtml(paceTip)}">${actRem}</div></div>
       ${PB.edit === J.job.id ? `<div class="g-editrow">${pbEditor(J)}</div>` : ''}`;
   };
   return `<div class="card">${legend}
-    <div class="gantt"><div class="g-row g-head"><div class="g-lab"><span class="small">Job Order</span></div><div class="g-track">${dayHead}</div></div>${jobs.map(row).join('')}</div>
-    <p class="small" style="margin:6px 0 0">Hover a bar for its dates, pieces and crew.</p></div>`;
+    <div class="gantt"><div class="g-row g-head"><div class="g-lab"><span class="small">Job Order</span></div><div class="g-track">${dayHead}</div><div class="g-rem small">Finish</div></div>${jobs.map((J, i) => row(J, TL[i])).join('')}</div>
+    <p class="small" style="margin:6px 0 0">Hover a day for the processes on it and their pieces; hover the projected finish to see the pace it is based on.</p></div>`;
 }
 
 /* ---- Kanban: process Job Orders by status ---- */
