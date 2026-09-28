@@ -657,7 +657,7 @@ function escapeHtml(s) {
 State.me = null;
 // staff = office production staff (not a machine operator): reads everything, writes nothing yet.
 // materials = the person who completes the material transfer (confirms MRF receipt); same rank as staff.
-const PMES_RANK = { staff: 5, materials: 5, operator: 10, supervisor: 20, manager: 30, admin: 40 };
+const PMES_RANK = { staff: 5, materials: 5, operator: 10, shift_head: 15, production_engineer: 18, supervisor: 20, manager: 30, admin: 40 };
 function pmesCan(minRole) {
   return (PMES_RANK[State.me && State.me.role] || 0) >= (PMES_RANK[minRole] || 99);
 }
@@ -733,7 +733,7 @@ async function authGate() {
   document.querySelector('nav.tabbar').style.display = '';
   applyRoleToNav();
   // Each role lands where they work: operators on Scan, the materials person on Materials.
-  const home = me.role === 'operator' ? 'scan' : me.role === 'materials' ? 'materials' : 'dashboard';
+  const home = me.role === 'operator' ? 'scan' : me.role === 'materials' ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
   State.screen = home;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();

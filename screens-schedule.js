@@ -18,53 +18,7 @@ function schedCompany() {
 }
 function fmtDay(d) { return d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'; }
 
-async function renderSchedule(main) {
-  main.innerHTML = `<div class="empty"><p>Building the schedule…</p></div>`;
-  const co = schedCompany();
-  let caps = [], jobs = [];
-  try {
-    [caps, jobs] = await Promise.all([Data.listStageCapacity(co), Data.listJobs()]);
-  } catch (e) { main.innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load: ${escapeHtml(e.message)}</p></div>`; return; }
-  const capacity = {}; caps.forEach((c) => { capacity[c.stage_code] = c; });
-  const open = jobs.filter((j) => j.destination_company === co && j.jo_review_status === 'approved' && j.job_active && j.status !== 'handed_off');
-  const bundles = await Promise.all(open.map(async (job) => {
-    const [stages, components, outputs] = await Promise.all([Data.listJobStages(job.id), Data.listComponents(job.id), Data.listStageOutputs(job.id).catch(() => [])]);
-    return { job, stages, components, outputs };
-  }));
-  const sched = PmesSchedule.forwardSchedule(bundles, capacity, new Date());
-  const stageLabel = (code) => { const t = State.stageTypes.find((x) => x.code === code); return t ? t.label : code; };
-  const codes = State.stageTypes.map((t) => t.code).filter((c) => sched.rows.some((r) => r.stage_code === c));
-  const canPick = pmesCan('manager');
-
-  const perJob = {};
-  sched.rows.forEach((r) => { (perJob[r.job_code] = perJob[r.job_code] || []).push(r); });
-  const jobTable = Object.keys(perJob).map((code) => {
-    const rows = perJob[code], b = bundles.find((x) => x.job.job_code === code);
-    const first = rows.find((r) => r.start), last = rows.slice().reverse().find((r) => r.end);
-    return `<div class="card">
-      <div class="flex-between"><h2 class="mb-0 mono" style="cursor:pointer" onclick="goToJob('${b.job.id}')">${escapeHtml(code)}</h2>
-        <span class="small">${b.job.quotation_serial ? escapeHtml(b.job.quotation_serial) + ' · ' : ''}approved ${fmtDate(b.job.jo_approved_at)}${first ? ' · <strong>' + fmtDay(first.start) + ' → ' + fmtDay(last.end) + '</strong>' : ''}</span></div>
-      <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Load</th><th>Left</th><th>Days</th><th>Start</th><th>End</th><th></th></tr></thead><tbody>
-      ${rows.map((r) => `<tr style="${r.days ? '' : 'opacity:.6'}"><td>${escapeHtml(stageLabel(r.stage_code))}</td><td>${r.load} ${escapeHtml(r.unit)}</td><td>${r.remaining} ${escapeHtml(r.unit)}</td>
-        <td>${r.days || '—'}</td><td>${fmtDay(r.start)}</td><td>${fmtDay(r.end)}</td><td class="small">${escapeHtml(r.note)}</td></tr>`).join('')}
-      </tbody></table></div>`;
-  }).join('');
-
-  main.innerHTML = `
-    <div class="flex-between" style="margin-bottom:10px;">
-      <p class="page-sub mb-0">Approved Job Orders in approval order, each process booked against <strong>${co}</strong>'s capacity from ${fmtDay(sched.start)}. Sundays${caps.some((c) => c.workdays_per_week <= 5) ? ' (and Saturdays)' : ''} are skipped. Confirmed output shortens what is left.</p>
-      ${canPick ? `<select onchange="SchedState.company=this.value;render()">${COMPANY_CODES.map((c) => `<option ${c === co ? 'selected' : ''}>${c}</option>`).join('')}</select>` : ''}
-    </div>
-    ${!caps.length ? `<div class="callout blocked">No process capacity is set for ${co} yet — go to IE → Process capacity${pmesCan('manager') ? ' and mirror it from Modcraft or type it in' : ' (a manager can set it)'}.</div>` : ''}
-    <div class="card"><h2>Booked days by process</h2>
-      ${codes.length ? `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;">${codes.map((c) => { const b = sched.byStage[c], cap = capacity[c];
-        return `<div style="min-width:150px;"><div class="small"><strong>${escapeHtml(stageLabel(c))}</strong></div><div style="font-size:20px;font-weight:800;color:var(--navy)">${b ? b.days : 0} <span class="small">day${b && b.days === 1 ? '' : 's'}</span></div>
-          <div class="small">${b ? b.jobs + ' job' + (b.jobs === 1 ? '' : 's') : 'idle'} · ${cap && cap.daily_capacity > 0 ? cap.daily_capacity + ' ' + escapeHtml(cap.unit) + '/day' : '<span style="color:var(--red)">no capacity</span>'}</div></div>`; }).join('')}</div>`
-      : '<p class="small">Nothing to schedule.</p>'}
-    </div>
-    ${jobTable || `<div class="empty"><div class="ic">📅</div><p>No approved Job Orders for ${co}.</p><p class="small">A JO appears here once staff have checked it and a supervisor has approved it.</p></div>`}
-  `;
-}
+// renderSchedule lives in screens-planboard.js (loading schedule per Job Order, 2026-09-28).
 
 /* ---- Process capacity (the home of capacity; shown on the IE tab) ---- */
 async function renderCapacityCard(el) {

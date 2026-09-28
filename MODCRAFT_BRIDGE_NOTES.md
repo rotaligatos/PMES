@@ -391,3 +391,17 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
   tap ✓ to undo, tick several + mark together, search, "not done only". Overview/Production show "N / M pieces done (x%)"
   and name the pieces not done. Scan station marks the scanned piece done (via 'scan') and shows its route with ticks.
 - Modcraft `modcraft_jo_progress` now reports pieces done and a `not_done` list per process.
+
+## 2026-09-28 — Process Job Orders, loading schedule, shift head
+- Roles (org: MD – Head of Plant Ops – manager – supervisor – production engineer – shift head – staff – rank and file):
+  new `shift_head` (rank 15) and `production_engineer` (rank 18). Staff/materials stay rank 5 — their powers are role-specific.
+- `pmes_process_jos`: one Job Order per process, created automatically when the mother JO is approved
+  (`pmes_process_jos_on_approve` trigger; existing approved jobs were backfilled). Status to_schedule → scheduled → handed_out →
+  in_progress → done, kept in step with the pieces (`pmes_pjo_sync`, triggers on `pmes_job_stages` and `pmes_component_done`).
+- Schedule: `pmes_schedule_save` (production engineer+) sets planned dates per process (the screen offers the capacity-based
+  recommendation from `schedule.js`); saving a change to an approved schedule returns it to draft. `pmes_schedule_approve`
+  (supervisor+) needs dates on every open process. `pmes_production_jobs.schedule_status` none/draft/approved.
+- Hand-out: `pmes_pjo_handout` (shift head+) to a machine and/or operators, only once the schedule is approved.
+- Screen Schedule (`screens-planboard.js`): Gantt / Kanban / Calendar / Today (shift), remembered per user. Today shows plan for
+  the day vs pieces ticked done, and per hour over an assumed 8:00–17:00 shift (lunch 12–1). Shift heads land on it.
+- Modcraft `modcraft_jo_progress`: schedule_status, planned dates per process (only once approved), process JO status.
