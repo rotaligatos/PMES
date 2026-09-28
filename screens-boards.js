@@ -97,7 +97,7 @@ async function renderBoardsCards(job, el) {
       ${run ? _bdRunHtml(run) : ''}
       ${planRows ? `<table class="comp-table" style="margin-top:10px;"><thead><tr><th>Plan</th><th>Status</th><th>Extra boards</th><th>By</th><th></th></tr></thead><tbody>${planRows}</tbody></table>` : '<p class="small">No plan saved yet — the Modcraft layout is used until one is adopted.</p>'}
     </div>
-    ${reqs.length ? `<div class="card"><h2>Additional boards</h2>${reqRows}</div>` : ''}`;
+    ${reqs.length ? `<div class="card"><h2>Extra board requests</h2><p class="small">Only for boards needed on top of the first Material request — when boards that arrived are rejected or defective and the cutting plan comes up short.</p>${reqRows}</div>` : ''}`;
 }
 
 function _bdBoardSvg(b, maxPx) {
