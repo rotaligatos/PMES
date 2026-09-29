@@ -24,9 +24,11 @@ const mon = new Date(2026, 8, 28); // Monday
 const r = S.forwardSchedule([{ job, stages, components: comps, outputs: [] }], cap, mon);
 const row = (c) => r.rows.find((x) => x.stage_code === c);
 ok(row('CUT').days === 2 && row('CUT').start.getDate() === 28 && row('CUT').end.getDate() === 29, 'CUT 120 lm at 60/day = 2 days, Mon–Tue');
-ok(row('EBA').days === 2 && row('EBA').start.getDate() === 30, 'EBA starts the day after CUT ends');
-ok(row('DRL').days === 1 && row('DRL').start.getDate() === 2, 'DRL 1 day, Fri 2 Oct');
-ok(row('ASM').days === 2 && row('ASM').start.getDate() === 3 && row('ASM').end.getDate() === 5, 'ASM 2 days: Sat 3 then Mon 5 — Sunday skipped');
+ok(row('EBA').days === 2 && row('EBA').start.getDate() === 29 && row('EBA').end.getDate() === 30, 'EBA starts the same day CUT ends (Tue) — Tue–Wed');
+ok(row('DRL').days === 1 && row('DRL').start.getDate() === 30, 'DRL 1 day, Wed 30 — same day EBA ends');
+ok(row('ASM').days === 2 && row('ASM').start.getDate() === 30 && row('ASM').end.getDate() === 1, 'ASM 2 days: Wed 30 then Thu 1 Oct');
+const rS = S.forwardSchedule([{ job, stages: stages.filter((x) => x.stage_code === 'ASM'), components: comps, outputs: [] }], cap, new Date(2026, 9, 3));
+ok(rS.rows[0].start.getDate() === 3 && rS.rows[0].end.getDate() === 5, 'ASM from Sat 3: Sat then Mon 5 — Sunday skipped');
 ok(row('QC').days === 0 && /no capacity/.test(row('QC').note), 'a process with no capacity is reported, not silently scheduled');
 
 // two jobs on one process: the second waits for the first
