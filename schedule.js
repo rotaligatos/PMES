@@ -90,6 +90,9 @@
       // day after lamination's first day and finishes no earlier than the day after lamination's last day.
       // CURE is that wait, so it takes no days of its own.
       let prevStart = start, prevEnd = start, afterLam = false;
+      // Cutting and Special cutting can be done in either order (2026-09-29): neither waits for the other; both follow what
+      // came before them, and the next process follows the pair (earliest start, latest finish).
+      const PAIR = { CUT: 1, SCUT: 1 }; let pairBase = null, pairSt = null, pairEn = null;
       const nextDay = (x) => { const y = new Date(x.getTime()); y.setDate(y.getDate() + 1); return y; };
       j.stages.slice().sort((a, b) => a.sequence_index - b.sequence_index).forEach((s) => {
         const l = load[s.stage_code] || { qty: 0, unit: 'pieces', pieces: 0 };
@@ -98,6 +101,8 @@
         const frac = l.pieces ? Math.min(1, done / l.pieces) : 0;
         const remaining = s.status === 'complete' ? 0 : Math.round(l.qty * (1 - frac) * 100) / 100;
         const cap = capacity[s.stage_code];
+        if (PAIR[s.stage_code]) { if (!pairBase) pairBase = { prevStart, prevEnd, afterLam }; else { prevStart = pairBase.prevStart; prevEnd = pairBase.prevEnd; afterLam = pairBase.afterLam; } }
+        else if (pairBase) { if (pairSt) { prevStart = pairSt; prevEnd = pairEn; afterLam = false; } else { prevStart = pairBase.prevStart; prevEnd = pairBase.prevEnd; afterLam = pairBase.afterLam; } pairBase = pairSt = pairEn = null; }
         let days = 0, note = '', st = null, en = null;
         if (s.stage_code === 'CURE') note = 'covered by the 24-hour lamination cure';
         else if (remaining <= 0) note = s.status === 'complete' ? 'done' : 'nothing to do';
@@ -119,6 +124,7 @@
           if (left > 1e-9) { note = 'no working days found in the next year — check the work calendar'; st = en = null; days = 0; }
           else { if (en < mustEnd) en = new Date(mustEnd.getTime());
             prevStart = new Date(st); prevEnd = new Date(en); afterLam = s.stage_code === 'HPL' || s.stage_code === 'MHPL';
+            if (PAIR[s.stage_code]) { if (!pairSt || st < pairSt) pairSt = new Date(st); if (!pairEn || en > pairEn) pairEn = new Date(en); }
             byStage[s.stage_code] = byStage[s.stage_code] || { days: 0, jobs: 0 }; byStage[s.stage_code].days += days; byStage[s.stage_code].jobs += 1; }
         }
         rows.push({ job_code: j.job.job_code, job_id: j.job.id, stage_code: s.stage_code, load: l.qty, unit: l.unit, remaining, days, start: st, end: en, note });

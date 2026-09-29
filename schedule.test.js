@@ -85,4 +85,11 @@ ok(L('HPL').start.getDate() === 28 && L('HPL').end.getDate() === 29, 'HPL 20 pie
 ok(L('CURE').days === 0 && /24-hour/.test(L('CURE').note), 'CURE takes no days of its own');
 ok(L('DRL').start.getDate() === 29, 'after lamination: next process starts the day after lamination\'s FIRST day (Tue), not after it ends');
 ok(L('DRL').end.getDate() === 30, '…and finishes no earlier than the day after lamination\'s last day (Wed)');
+// Cutting and Special cutting can go in either order — neither waits for the other
+const pairStages = ['CUT', 'SCUT', 'DRL'].map((c, i) => ({ id: 's' + c, stage_code: c, sequence_index: i, status: 'not_started' }));
+const capP = { CUT: { daily_capacity: 10, unit: 'pieces', workdays_per_week: 6 }, SCUT: { daily_capacity: 5, unit: 'pieces', workdays_per_week: 6 }, DRL: { daily_capacity: 1000, unit: 'pieces', workdays_per_week: 6 } };
+const rP = S.forwardSchedule([{ job: { id: 'jp', job_code: 'JO-P' }, stages: pairStages, components: Array.from({ length: 20 }, () => ({ route: [] })), outputs: [] }], capP, mon);
+const P = (c) => rP.rows.find((x) => x.stage_code === c);
+ok(P('CUT').start.getDate() === 28 && P('SCUT').start.getDate() === 28, 'CUT and SCUT both start Mon — SCUT does not follow CUT');
+ok(P('SCUT').end.getDate() === 1 && P('DRL').end.getDate() === 1, 'the next process follows the pair: cannot finish before the later of the two (SCUT, Thu 1 Oct)');
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);
