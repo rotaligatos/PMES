@@ -419,3 +419,15 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
 - `schedule.js` forwardSchedule(jobs, capacity, start, {dayInfo}) consumes each day's capacity = daily_capacity ÷ shifts_per_day × that day's
   shifts, skipping days that are not working; doneByStage (pieces ticked) replaces confirmed output. Tests in schedule.test.js.
 - Screen: Schedule → Work calendar (week editor, quick-fill presets, requests with the approval chain). Today's hourly plan uses today's shifts.
+
+## 2026-09-29 — Schedule practice mode + lamination "ready after cure"
+- **Practice with sample Job Orders** (link top right of Schedule, production engineer / shift head and up;
+  `screens-planboard-demo.js`). Six sample JOs built in the browser: finished, behind plan, pushed by that
+  delay (delay alert), waiting for manager, ending on lamination, draft with recommended dates only. Dates
+  come from the real `schedule.js` with sample capacity. Every button works on the sample in memory;
+  work calendar / off-day changes are refused; nothing reads or writes the database. "Back to the real
+  schedule" reloads. Wraps renderSchedule/pbDraw/pbSave/pbApprove/pbDelayDecide/pbHandoutSave/goToJob.
+- **Lamination last** (Rommel): once cured the boards go where the JO says next. When nothing follows
+  HPL/MHPL (except CURE) — pick-up or turnover to WCL — the Gantt finish reads "Ready after cure" = the
+  day after lamination's last day. When a process follows, the existing rule stands (starts the day after
+  lamination's first day, finishes no earlier than the day after its last).

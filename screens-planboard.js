@@ -216,6 +216,14 @@ function pbJobTimeline(J) {
       if (!first || a < first) first = a; if (!lastDone || dates[dates.length - 1] > lastDone) lastDone = dates[dates.length - 1];
     }
   });
+  // Lamination last (2026-09-29, Rommel): once cured the boards go wherever the JO says next. When nothing
+  // follows lamination (client pick-up or turnover to World Class Laminate), the Job Order is ready the day
+  // after lamination's last day — the 24-hour cure.
+  let readyAfterCure = false;
+  const lastPlanned = plan.filter((x) => x.code !== 'CURE').sort((x, y) => x.p.sequence_index - y.p.sequence_index).pop();
+  if (lastPlanned && (lastPlanned.code === 'HPL' || lastPlanned.code === 'MHPL') && planEnd && +lastPlanned.e === +planEnd) {
+    planEnd = new Date(planEnd); planEnd.setDate(planEnd.getDate() + 1); readyAfterCure = true;
+  }
   let proj = null, projNote = '';
   const remaining = Math.max(0, totalSteps - doneSteps);
   if (totalSteps && remaining === 0) { proj = lastDone; projNote = 'Finished'; }
@@ -224,7 +232,7 @@ function pbJobTimeline(J) {
     const pace = doneSteps / days; // piece-steps per working day, all processes together
     proj = pbAddWorkDays(today, Math.ceil(remaining / pace)); projNote = 'Projected finish';
   }
-  return { plan, act, planEnd, anyPlanDates, proj, projNote, pace: first && doneSteps ? doneSteps / Math.max(1, pbWorkDaysBetween(first, today)) : 0, doneSteps, totalSteps };
+  return { plan, act, planEnd, readyAfterCure, anyPlanDates, proj, projNote, pace: first && doneSteps ? doneSteps / Math.max(1, pbWorkDaysBetween(first, today)) : 0, doneSteps, totalSteps };
 }
 
 function pbGantt(jobs) {
@@ -262,7 +270,7 @@ function pbGantt(jobs) {
     const dot = { gray: 'var(--text-dim)', amber: 'var(--amber)', blue: '#1f5fa8', green: 'var(--green)' }[sp[0]] || 'var(--text-dim)';
     const who = J.client + (J.project ? ' — ' + J.project : '') + (J.job.quotation_serial ? ' · ' + J.job.quotation_serial : '');
     // Remarks
-    const planRem = t.planEnd ? `Plan finish <b>${fmtDay(t.planEnd)}</b>${t.anyPlanDates ? (approved ? '' : ' <span class="small">(not approved)</span>') : ' <span class="small">(recommended)</span>'}` : '<span class="small">No dates yet</span>';
+    const planRem = t.planEnd ? `${t.readyAfterCure ? '<span title="Ends on lamination: ready for pick-up / turnover the day after, once cured (24 h)">Ready after cure</span>' : 'Plan finish'} <b>${fmtDay(t.planEnd)}</b>${t.anyPlanDates ? (approved ? '' : ' <span class="small">(not approved)</span>') : ' <span class="small">(recommended)</span>'}` : '<span class="small">No dates yet</span>';
     let actRem = '<span class="small">Not started</span>';
     if (t.projNote === 'Finished') {
       const diff = t.planEnd ? pbWorkDaysBetween(t.planEnd < t.proj ? t.planEnd : t.proj, t.planEnd < t.proj ? t.proj : t.planEnd) - 1 : 0;
