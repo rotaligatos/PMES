@@ -24,9 +24,9 @@ const mon = new Date(2026, 8, 28); // Monday
 const r = S.forwardSchedule([{ job, stages, components: comps, outputs: [] }], cap, mon);
 const row = (c) => r.rows.find((x) => x.stage_code === c);
 ok(row('CUT').days === 2 && row('CUT').start.getDate() === 28 && row('CUT').end.getDate() === 29, 'CUT 120 lm at 60/day = 2 days, Mon–Tue');
-ok(row('EBA').days === 2 && row('EBA').start.getDate() === 29 && row('EBA').end.getDate() === 30, 'EBA starts the same day CUT ends (Tue) — Tue–Wed');
-ok(row('DRL').days === 1 && row('DRL').start.getDate() === 30, 'DRL 1 day, Wed 30 — same day EBA ends');
-ok(row('ASM').days === 2 && row('ASM').start.getDate() === 30 && row('ASM').end.getDate() === 1, 'ASM 2 days: Wed 30 then Thu 1 Oct');
+ok(row('EBA').days === 2 && row('EBA').start.getDate() === 28 && row('EBA').end.getDate() === 29, 'EBA starts the day CUT starts (Mon), finishes Tue');
+ok(row('DRL').start.getDate() === 28 && row('DRL').end.getDate() === 29, 'DRL needs 1 day of capacity but cannot finish before EBA (Tue)');
+ok(row('ASM').start.getDate() === 28 && row('ASM').end.getDate() === 29, 'ASM runs alongside, Mon–Tue');
 const rS = S.forwardSchedule([{ job, stages: stages.filter((x) => x.stage_code === 'ASM'), components: comps, outputs: [] }], cap, new Date(2026, 9, 3));
 ok(rS.rows[0].start.getDate() === 3 && rS.rows[0].end.getDate() === 5, 'ASM from Sat 3: Sat then Mon 5 — Sunday skipped');
 ok(row('QC').days === 0 && /no capacity/.test(row('QC').note), 'a process with no capacity is reported, not silently scheduled');
@@ -76,4 +76,13 @@ const cap2s = { CUT: { daily_capacity: 60, unit: 'lm', shifts_per_day: 1, workda
 const two = (d) => ({ working: d.getDay() !== 0, shifts: 2 });
 const r9 = S.forwardSchedule([{ job: jobA, stages: stages.slice(0, 1), components: comps, outputs: [] }, { job: jobB, stages: stages.slice(0, 1), components: comps, outputs: [] }], cap2s, mon, { dayInfo: two });
 ok(r9.rows[0].end.getDate() === 28 && r9.rows[1].start.getDate() === 28 && r9.rows[1].end.getDate() === 29, 'two shifts = 120 lm/day: JO-A done Mon, JO-B uses Mon\'s spare 30 then 60 on Tue');
+// lamination: 24-hour cure before the next process, only on lamination's first day
+const lamStages = ['CUT', 'HPL', 'CURE', 'DRL'].map((c, i) => ({ id: 's' + c, stage_code: c, sequence_index: i, status: 'not_started' }));
+const capL = { CUT: { daily_capacity: 1000, unit: 'pieces', workdays_per_week: 6 }, HPL: { daily_capacity: 10, unit: 'pieces', workdays_per_week: 6 }, DRL: { daily_capacity: 1000, unit: 'pieces', workdays_per_week: 6 } };
+const rL = S.forwardSchedule([{ job: { id: 'jl', job_code: 'JO-L' }, stages: lamStages, components: Array.from({ length: 20 }, () => ({ route: [] })), outputs: [] }], capL, mon);
+const L = (c) => rL.rows.find((x) => x.stage_code === c);
+ok(L('HPL').start.getDate() === 28 && L('HPL').end.getDate() === 29, 'HPL 20 pieces at 10/day: Mon–Tue');
+ok(L('CURE').days === 0 && /24-hour/.test(L('CURE').note), 'CURE takes no days of its own');
+ok(L('DRL').start.getDate() === 29, 'after lamination: next process starts the day after lamination\'s FIRST day (Tue), not after it ends');
+ok(L('DRL').end.getDate() === 30, '…and finishes no earlier than the day after lamination\'s last day (Wed)');
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);

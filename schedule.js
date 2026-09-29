@@ -85,7 +85,12 @@
     const ordered = jobs.slice().sort((a, b) => String(a.job.jo_approved_at || '').localeCompare(String(b.job.jo_approved_at || '')));
     ordered.forEach((j) => {
       const load = stageLoad(j.job, j.components, j.stages);
-      let prevEnd = start;
+      // Flow (2026-09-29): a process may start the day the process before it STARTS (pieces move on as they are
+      // finished) but cannot finish before it. Lamination (HPL/MHPL) needs 24 h of curing: what follows it starts the
+      // day after lamination's first day and finishes no earlier than the day after lamination's last day.
+      // CURE is that wait, so it takes no days of its own.
+      let prevStart = start, prevEnd = start, afterLam = false;
+      const nextDay = (x) => { const y = new Date(x.getTime()); y.setDate(y.getDate() + 1); return y; };
       j.stages.slice().sort((a, b) => a.sequence_index - b.sequence_index).forEach((s) => {
         const l = load[s.stage_code] || { qty: 0, unit: 'pieces', pieces: 0 };
         const done = j.doneByStage ? (j.doneByStage[s.stage_code] || 0)
@@ -94,14 +99,16 @@
         const remaining = s.status === 'complete' ? 0 : Math.round(l.qty * (1 - frac) * 100) / 100;
         const cap = capacity[s.stage_code];
         let days = 0, note = '', st = null, en = null;
-        if (remaining <= 0) note = s.status === 'complete' ? 'done' : 'nothing to do';
+        if (s.stage_code === 'CURE') note = 'covered by the 24-hour lamination cure';
+        else if (remaining <= 0) note = s.status === 'complete' ? 'done' : 'nothing to do';
         else if (!cap || !(cap.daily_capacity > 0)) note = 'no capacity set — not scheduled';
         else if (cap.unit !== l.unit) note = 'capacity is in ' + cap.unit + ', load is in ' + l.unit + ' — set capacity in ' + l.unit;
         else {
           // A day is filled up to the process's capacity: what an earlier Job Order left unused on a day
-          // is taken by the next one the same day (2026-09-29). A Job Order's next process may start the same day the previous one ends.
+          // is taken by the next one the same day (2026-09-29). A Job Order's next process follows the flow rule above.
           const used = stageFree[s.stage_code] = stageFree[s.stage_code] || {};
-          const d = new Date(prevEnd.getTime());
+          const d = afterLam ? nextDay(prevStart) : new Date(prevStart.getTime());
+          const mustEnd = afterLam ? nextDay(prevEnd) : prevEnd;
           let left = remaining, guard = 0;
           while (left > 1e-9 && guard++ < MAXD) {
             const k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
@@ -110,7 +117,8 @@
             if (left > 1e-9) d.setDate(d.getDate() + 1);
           }
           if (left > 1e-9) { note = 'no working days found in the next year — check the work calendar'; st = en = null; days = 0; }
-          else { prevEnd = new Date(en);
+          else { if (en < mustEnd) en = new Date(mustEnd.getTime());
+            prevStart = new Date(st); prevEnd = new Date(en); afterLam = s.stage_code === 'HPL' || s.stage_code === 'MHPL';
             byStage[s.stage_code] = byStage[s.stage_code] || { days: 0, jobs: 0 }; byStage[s.stage_code].days += days; byStage[s.stage_code].jobs += 1; }
         }
         rows.push({ job_code: j.job.job_code, job_id: j.job.id, stage_code: s.stage_code, load: l.qty, unit: l.unit, remaining, days, start: st, end: en, note });
