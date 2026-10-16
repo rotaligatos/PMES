@@ -222,7 +222,7 @@ async function printProcessJO(jobId, stageCode) {
   const svcStage = stageCode === 'TPR' || stageCode === 'RTR' || stageCode === 'GLU';
   const svcRe = stageCode === 'TPR' ? /taper/i : stageCode === 'GLU' ? /board\s*assembl/i : /rout/i;
   const svcText = (c) => (Array.isArray(sp(c).services) ? sp(c).services : []).filter((x) => svcRe.test(x.service || ''))
-    .map((x) => x.service + (x.qty ? ' — ' + x.qty + ' ' + (x.unit || 'lm') + ' (whole row)' : '')).join('; ');
+    .map((x) => x.service + (x.side ? ' — along ' + x.side : '') + (x.qty ? ' — ' + x.qty + ' ' + (x.unit || 'lm') + ' (whole row)' : '')).join('; ');
 
   const cols = [['Scan code', (c) => '<span class="mono">' + e(c.scan_code || c.full_barcode_id) + '</span>'],
                 ['Part', (c) => '<b>' + e(sp(c).part || c.part_code) + '</b>'],
