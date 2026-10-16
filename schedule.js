@@ -7,6 +7,7 @@
      EBA/EBB/MEB  edge-banding lm (split by pieces routed to each)
      HPL/MHPL  boards of HPL material (split by pieces routed to each)
      GRV       grooving lm (the per-lm services whose name says grooving)
+     TPR/RTR/GLU  tapering / routering / board-assembly lm (by service name)
      DRL       holes
      everything else  pieces
    A job with no mother JO (hand-made) is loaded in pieces on every process.
@@ -44,6 +45,10 @@
     ['HPL', 'MHPL'].forEach((c) => set(c, share(['HPL', 'MHPL'], hplBoards, c), 'boards'));
     const grv = (sv.extraServicesByName || []).filter((x) => /groov/i.test(x.service || '')).reduce((n, x) => n + (Number(x.qty) || 0), 0);
     if (out.GRV) set('GRV', grv, 'lm');
+    const lmOf = (re, not) => (sv.extraServicesByName || []).filter((x) => re.test(x.service || '') && !(not && not.test(x.service || ''))).reduce((n, x) => n + (Number(x.qty) || 0), 0);
+    if (out.TPR) set('TPR', lmOf(/taper/i), 'lm');
+    if (out.RTR) set('RTR', lmOf(/rout/i, /groov/i), 'lm');
+    if (out.GLU) set('GLU', lmOf(/board\s*assembl/i), 'lm');
     if (out.DRL) set('DRL', sv.holeCount || 0, 'holes');
     return out;
   }

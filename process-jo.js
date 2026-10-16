@@ -217,6 +217,12 @@ async function printProcessJO(jobId, stageCode) {
   const edge = stageCode === 'EBA' || stageCode === 'EBB' || stageCode === 'MEB';
   const hpl = stageCode === 'HPL' || stageCode === 'CURE' || stageCode === 'MHPL';
   const groove = stageCode === 'GRV';
+  // Tapering / routering / board glue-up (2026-10-16): the Modcraft Job Order names the priced
+  // service on each piece (spec.services), so the operator sees exactly which work it needs.
+  const svcStage = stageCode === 'TPR' || stageCode === 'RTR' || stageCode === 'GLU';
+  const svcRe = stageCode === 'TPR' ? /taper/i : stageCode === 'GLU' ? /board\s*assembl/i : /rout/i;
+  const svcText = (c) => (Array.isArray(sp(c).services) ? sp(c).services : []).filter((x) => svcRe.test(x.service || ''))
+    .map((x) => x.service + (x.qty ? ' — ' + x.qty + ' ' + (x.unit || 'lm') + ' (whole row)' : '')).join('; ');
 
   const cols = [['Scan code', (c) => '<span class="mono">' + e(c.scan_code || c.full_barcode_id) + '</span>'],
                 ['Part', (c) => '<b>' + e(sp(c).part || c.part_code) + '</b>'],
@@ -229,6 +235,9 @@ async function printProcessJO(jobId, stageCode) {
   else if (groove) cols.push(['Finished L × W', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
     ['Material', (c) => e(sp(c).material || '')], ['Grooving', (c) => '<b>' + e(sp(c).grooving || '') + '</b>'],
     ['Grain', (c) => e(sp(c).grain || '')]);
+  else if (svcStage) cols.push(['Finished L × W', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
+    ['Material', (c) => e(sp(c).material || '')], ['Th', (c) => e(sp(c).thickness || '')],
+    ['Work', (c) => '<b>' + e(svcText(c) || (stageCode === 'GLU' ? 'glue to its panel' : '')) + '</b>'], ['Grain', (c) => e(sp(c).grain || '')]);
   else if (hpl) cols.push(['Material', (c) => e(sp(c).material || '')], ['Size', (c) => size(sp(c).cutL || sp(c).L, sp(c).cutW || sp(c).W)],
     ['Order', (c) => e(sp(c).hplOrder === 'laminate_first' ? 'whole board, before cutting' : 'after cutting')]);
   else cols.push(['Finished L × W', (c) => size(sp(c).L, sp(c).W)], ['Material', (c) => e(sp(c).material || '')]);
