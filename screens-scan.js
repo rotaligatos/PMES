@@ -95,8 +95,8 @@ async function lookupScannedComponent() {
         <select id="scanStageSelect">
           ${allowed.map((s) => `<option value="${s}" ${s === pick ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
-        <label class="field-label">Operator</label>
-        <input type="text" id="scanOperator" placeholder="Operator name / badge id" value="${escapeHtml((State.me && State.me.name) || '')}" />
+        <label class="field-label">Operator(s) who did the work</label>
+        <input type="text" id="scanOperator" placeholder="Name(s), comma separated — blank = the operators the process JO was handed to" value="${escapeHtml(_scanOperatorSaved())}" />
         <button class="btn primary block" style="margin-top:12px;" onclick="logScanCompletion('${component.id}')">
           Mark done
         </button>
@@ -107,10 +107,12 @@ async function lookupScannedComponent() {
 
 async function logScanCompletion(componentId) {
   const stage_code = document.getElementById('scanStageSelect').value;
-  const operator = document.getElementById('scanOperator').value.trim() || null;
+  const operator = document.getElementById('scanOperator').value.trim();
+  try { localStorage.setItem('pmes_operator', operator); } catch (e) {}
+  const ops = operator ? operator.split(',').map((x) => x.trim()).filter(Boolean) : null;
 
   try {
-    const { data, error } = await sb.rpc('pmes_component_mark', { p_components: [componentId], p_stage: stage_code, p_done: true, p_note: operator ? 'Operator: ' + operator : null, p_via: 'scan' });
+    const { data, error } = await sb.rpc('pmes_component_mark', { p_components: [componentId], p_stage: stage_code, p_done: true, p_note: null, p_via: 'scan', p_operators: ops });
     if (error) throw error;
     if (data.marked) toast('Done at ' + stage_code + ' — ' + data.done + '/' + data.planned + ' pieces at this process.', 'success');
     else toast('Not marked: ' + ((data.skipped && data.skipped[0] && data.skipped[0].why) || 'nothing to do') + '.', 'error');
@@ -167,3 +169,6 @@ async function toggleCameraScan() {
     });
   } catch (e) { toast('Camera not available: ' + (e && e.message || e), 'error'); stopCameraScan(); }
 }
+
+// The operator(s) at this station are remembered on this device until changed.
+function _scanOperatorSaved() { try { return localStorage.getItem('pmes_operator') || ''; } catch (e) { return ''; } }

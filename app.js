@@ -358,6 +358,8 @@ const Data = {
     return data;
   },
   async findComponentByBarcode(barcode) {
+    // QR labels (2026-10-17) spell out "CODE | size | board | EB …" — the part code is the first field.
+    barcode = String(barcode || '').split('|')[0].trim();
     // Labels printed by Modcraft's Job Order encode the SHORT scan code (e.g. W00000130-V1-P12-01);
     // the long job-area-component-part-NN/TT ID is printed underneath as text. Accept either.
     const bySc = await sb.from(T('components')).select('*').eq('scan_code', barcode).maybeSingle();

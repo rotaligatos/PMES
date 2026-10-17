@@ -57,7 +57,7 @@ function renderPieceMatrix(job, stages, components, done) {
     if (!onRoute) return '<td class="pc-na">—</td>';
     const d = m[c.id + '|' + code];
     const may = canMark && pmesStageAllowed(code);
-    if (d) return `<td class="pc-done"><button class="pc-cell done" title="Done by ${escapeHtml(d.done_by_name || d.done_by)} · ${fmtDate(d.done_at)}${d.via === 'scan' ? ' (scan)' : ''}${d.note ? ' · ' + escapeHtml(d.note) : ''}" ${may ? `onclick="pieceUndo('${c.id}','${code}')"` : 'disabled'}>✓</button></td>`;
+    if (d) return `<td class="pc-done"><button class="pc-cell done" title="${d.operators && d.operators.length ? 'Done by ' + escapeHtml(d.operators.join(', ')) + ' (recorded by ' + escapeHtml(d.done_by_name || d.done_by) + ')' : 'Done by ' + escapeHtml(d.done_by_name || d.done_by)} · ${fmtDate(d.done_at)}${d.via === 'scan' ? ' (scan)' : ''}${d.note ? ' · ' + escapeHtml(d.note) : ''}" ${may ? `onclick="pieceUndo('${c.id}','${code}')"` : 'disabled'}>✓</button></td>`;
     return `<td><button class="pc-cell" title="${may ? 'Mark done at ' + code : 'Not done'}" ${may ? `onclick="pieceMark(['${c.id}'],'${code}')"` : 'disabled'}>○</button></td>`;
   };
   return `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Pieces by process</h2>
