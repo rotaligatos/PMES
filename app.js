@@ -481,7 +481,7 @@ function goToJob(id, tab) {
 
 // Screens reached from the More menu light up the More tab.
 const MORE_SCREENS = ['intake', 'excess', 'ie', 'settings'];
-function goToScreen(name) {
+function goToScreen(name) { if (typeof stopCameraScan === 'function' && name !== 'scan') stopCameraScan();
   const tab = MORE_SCREENS.includes(name) ? 'more' : name;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === tab));
   State.screen = name;

@@ -5,15 +5,16 @@ async function renderScan(main) {
     <p class="page-sub">Scan or manually enter a component barcode ID to log stage progress.</p>
 
     <div class="callout info">
-      Camera-based scanning isn't wired up in this v1 build. Type the barcode ID (or paste from a
-      handheld scanner acting as a keyboard) below — the lookup/logging logic is the same either way,
-      so swapping in a camera scanner later is a drop-in change to this input.
+      Scan the QR on the part label with a USB scanner (it types the code here), or tap
+      <b>Scan with camera</b> on a phone or tablet.
     </div>
 
     <div class="card">
       <label class="field-label">Component barcode ID</label>
       <input type="text" id="scanInput" placeholder="e.g. J4821-KIT-BASE01-DR-02/05" autocomplete="off" />
       <button class="btn primary block" style="margin-top:12px;" onclick="lookupScannedComponent()">Look up component</button>
+      <button class="btn outline block" style="margin-top:8px;" id="camBtn" onclick="toggleCameraScan()">📷 Scan with camera</button>
+      <div id="camBox" style="margin-top:10px;display:none;max-width:420px;"></div>
     </div>
 
     <div id="scanResult"></div>
@@ -138,4 +139,31 @@ function stageSequenceFor(component, job) {
   if (component && Array.isArray(component.route) && component.route.length) return component.route;
   const route = State.routeMappings.find((r) => r.code === job.route_code);
   return route ? route.stage_sequence : null;
+}
+
+/* Camera scanning (2026-10-17): reads the part label's QR with the phone/tablet camera and runs the
+   same lookup a USB scanner does. html5-qrcode is loaded only when the camera is first used. */
+let _camScanner = null;
+function _loadCamLib() {
+  if (window.Html5Qrcode) return Promise.resolve();
+  return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('camera scanner could not load')); document.head.appendChild(sc); });
+}
+async function stopCameraScan() {
+  const box = document.getElementById('camBox'), btn = document.getElementById('camBtn');
+  if (_camScanner) { try { await _camScanner.stop(); } catch (e) {} try { _camScanner.clear(); } catch (e) {} _camScanner = null; }
+  if (box) box.style.display = 'none'; if (btn) btn.textContent = '📷 Scan with camera';
+}
+async function toggleCameraScan() {
+  if (_camScanner) return stopCameraScan();
+  const box = document.getElementById('camBox'), btn = document.getElementById('camBtn');
+  try { await _loadCamLib(); } catch (e) { return toast(e.message, 'error'); }
+  box.style.display = 'block'; box.innerHTML = '<div id="camView"></div>'; btn.textContent = '■ Stop camera';
+  _camScanner = new Html5Qrcode('camView');
+  try {
+    await _camScanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 }, async (text) => {
+      await stopCameraScan();
+      const inp = document.getElementById('scanInput'); if (inp) inp.value = text;
+      lookupScannedComponent();
+    });
+  } catch (e) { toast('Camera not available: ' + (e && e.message || e), 'error'); stopCameraScan(); }
 }

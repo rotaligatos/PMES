@@ -155,7 +155,7 @@ function drawJobTab() {
   }
 
   else if (t === 'parts' && components.length) {
-    body.innerHTML = '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>';
+    body.innerHTML = (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>';
   }
 
   else if (t === 'parts') {
