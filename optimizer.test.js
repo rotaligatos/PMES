@@ -9,9 +9,13 @@ const overlaps = (a, d) => a.x < d.x + d.w && a.x + a.w > d.x && a.y < d.y + d.h
 const mc = path.resolve(__dirname, '../../Modcraft/index.html');
 if (fs.existsSync(mc)) {
   const src = fs.readFileSync(mc, 'utf8');
-  const start = src.indexOf('function guillotinePackBoards(');
+  // Modcraft's packer is the single pass (_guillotinePackOnce) plus the "try several orders"
+  // wrapper (guillotinePackBoards). Both are compared: one pass vs one pass, best vs best.
+  let start = src.indexOf('function _guillotinePackOnce(');
+  if (start < 0) start = src.indexOf('function guillotinePackBoards(');
   const end = src.indexOf('\nfunction prodComputeBom(', start);
-  const gpb = new Function(src.slice(start, end) + '\nreturn guillotinePackBoards;')();
+  const lib = new Function(src.slice(start, end) + '\nreturn {gpb:guillotinePackBoards, once:(typeof _guillotinePackOnce==="function"?_guillotinePackOnce:null)};')();
+  const gpb = lib.once ? (a, b, c, d, e) => lib.once(a, b, c, d, e, 'width') : lib.gpb;
   const pcs = []; let r = 1;
   [[600, 400, 6], [900, 300, 4], [720, 560, 5], [1800, 580, 3], [400, 400, 8], [2100, 600, 2]].forEach(([l, w, q]) => { for (let i = 0; i < q; i++) pcs.push({ length: l, width: w, ref: r++, grain: i % 2 ? 'length' : '' }); });
   [false, true].forEach((rot) => {
@@ -19,6 +23,11 @@ if (fs.existsSync(mc)) {
     const p = O.packOnBoards(pcs, Array.from({ length: 20 }, (_, i) => ({ no: i + 1, w: 1220, h: 2440, defects: [] })), 3, rot, 1220, 2440);
     const norm = (lay) => JSON.stringify(lay.map((b) => b.map((q) => [q.x, q.y, q.w, q.h, q.ref])));
     ok(p.realUsed === m.boardsNeeded && norm(p.boards.map((b) => b.layout)) === norm(m.layout), 'same boards and same placements as Modcraft (rotation ' + (rot ? 'on' : 'off') + ', ' + m.boardsNeeded + ' boards)');
+    if (lib.once) {
+      const mb = lib.gpb(pcs, 1220, 2440, 3, rot);
+      const pb = O.packBest(pcs, Array.from({ length: 20 }, (_, i) => ({ no: i + 1, w: 1220, h: 2440, defects: [] })), 3, rot, 1220, 2440);
+      ok(pb.realUsed === mb.boardsNeeded && norm(pb.boards.map((b) => b.layout)) === norm(mb.layout), 'best of several orders = Modcraft\'s choice (rotation ' + (rot ? 'on' : 'off') + ', ' + mb.boardsNeeded + ' boards, ' + mb.strategy + ')');
+    }
   });
 } else console.log('  (Modcraft index.html not found beside PMES — fidelity check skipped)');
 

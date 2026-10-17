@@ -52,8 +52,17 @@
   /* pieces:  [{length, width, grain, ref, part}]
      boards:  [{no, w, h, defects:[{x,y,w,h}]}] — usable real boards (rejected already removed)
      extraW/extraH: size of a clean extra board. */
-  function packOnBoards(pieces, boards, kerf, allowRotate, extraW, extraH) {
-    const items = pieces.slice().sort((a, b) => b.width - a.width);
+  // Piece orders tried — kept in step with Modcraft's _GPACK_ORDERS (2026-10-17). "width" is the
+  // original single pass and runs first, so a tie keeps the layout it gave before.
+  const ORDERS = {
+    width: (a, b) => b.width - a.width,
+    length: (a, b) => (b.length - a.length) || (b.width - a.width),
+    area: (a, b) => (b.length * b.width - a.length * a.width) || (b.width - a.width),
+    perim: (a, b) => ((b.length + b.width) - (a.length + a.width)) || (b.width - a.width),
+    side: (a, b) => (Math.max(b.length, b.width) - Math.max(a.length, a.width)) || (b.width - a.width),
+  };
+  function packOnBoards(pieces, boards, kerf, allowRotate, extraW, extraH, order) {
+    const items = pieces.slice().sort(ORDERS[order] || ORDERS.width);
     const bs = boards.map((b) => ({ no: b.no, w: b.w, h: b.h, defects: b.defects || [], extra: false, widthUsed: 0, shelves: [], layout: [] }));
     let oversized = 0; const oversizedRefs = [];
     for (const p of items) {
@@ -120,6 +129,28 @@
     };
   }
 
+  // Same rule as Modcraft's guillotinePackBoards: try every order (and no rotation when rotation
+  // is allowed), keep the best — fewest pieces left off, fewest extra boards, fewest real boards,
+  // then the waste gathered on as few boards as possible. Never worse than the single pass.
+  function packBest(pieces, boards, kerf, allowRotate, extraW, extraH) {
+    let best = packOnBoards(pieces, boards, kerf, allowRotate, extraW, extraH, 'width');
+    best.strategy = 'width' + (allowRotate ? ' + rotate' : '');
+    if (!pieces || pieces.length < 2) return best;
+    const minFill = (r) => { let m = Infinity; r.boards.forEach((b) => { const a = b.layout.reduce((n, q) => n + q.w * q.h, 0) / (b.w * b.h); if (a < m) m = a; }); return m === Infinity ? 0 : m; };
+    const better = (r, b) => {
+      if (r.oversizedCount !== b.oversizedCount) return r.oversizedCount < b.oversizedCount;
+      if (r.extraNeeded !== b.extraNeeded) return r.extraNeeded < b.extraNeeded;
+      if (r.realUsed !== b.realUsed) return r.realUsed < b.realUsed;
+      return minFill(r) < minFill(b) - 0.02;
+    };
+    Object.keys(ORDERS).forEach((ord) => (allowRotate ? [true, false] : [false]).forEach((rot) => {
+      if (ord === 'width' && rot === !!allowRotate) return;
+      const r = packOnBoards(pieces, boards, kerf, rot, extraW, extraH, ord);
+      if (better(r, best)) { r.strategy = ord + (rot ? ' + rotate' : ''); best = r; }
+    }));
+    return best;
+  }
+
   /* The whole job: one run per board group of the mother JO.
      inspected: [{group_key, board_no, board_w, board_h, status, defects:[...]}] */
   function optimizeJob(mjo, inspected) {
@@ -140,13 +171,13 @@
       const boards = assumed
         ? Array.from({ length: g.boardsNeeded || 0 }, (_, i) => ({ no: i + 1, w: g.boardW, h: g.boardH, defects: [] }))
         : usable.map((b) => ({ no: b.board_no, w: +b.board_w, h: +b.board_h, defects: (b.defects || []).map((d) => ({ x: +d.x, y: +d.y, w: +d.w, h: +d.h, type: d.defect_type || d.type })) }));
-      const r = packOnBoards(pieces, boards, +g.kerf || 0, !!g.allowRotate, g.boardW, g.boardH);
+      const r = packBest(pieces, boards, +g.kerf || 0, !!g.allowRotate, g.boardW, g.boardH);
       return Object.assign(r, { group_key: key, label, boardW: g.boardW, boardH: g.boardH, kerf: +g.kerf || 0, allowRotate: !!g.allowRotate,
         planned: g.boardsNeeded || 0, received: mine.length, rejected: rejected.map((b) => b.board_no), assumedClean: assumed,
         defectCount: usable.reduce((n, b) => n + ((b.defects || []).length), 0), pieces: pieces.length });
     });
   }
 
-  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, optimizeJob, placeY };
+  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, packBest, optimizeJob, placeY };
 })(typeof window !== 'undefined' ? window : globalThis);
 if (typeof module !== 'undefined') module.exports = globalThis.PmesOptimizer;
