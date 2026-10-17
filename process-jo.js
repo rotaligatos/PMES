@@ -51,21 +51,33 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
   (defects || []).forEach((d) => { r += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" fill="rgba(220,40,40,.35)" stroke="#c0271d" stroke-width="${sw * 1.5}"></rect>`; });
   return `<svg width="${pw}" height="${ph}" viewBox="0 0 ${boardW} ${boardH}" style="background:#fff;border:2px solid #8a7a63">${r}</svg>`;
 }
+// Cutting instructions — kept in step with Modcraft's _prodCutSequence (2026-10-17). A Modcraft
+// Job Order carries a cut plan per board (plans): strips along the length ('L') or across the width
+// ('W'), crosscut into segments, a segment cut into pieces side by side. A plan PMES re-optimized
+// around defects has strips along the length only (shelves) — read as the same shape.
 function _pjoCutSequence(bm, bi) {
   const pieces = (bm.layout && bm.layout[bi]) || [];
-  const shelves = ((bm.shelves && bm.shelves[bi]) || []).slice().sort((a, b) => a.xStart - b.xStart).map((s) => ({
-    width: s.width, pieces: pieces.filter((p) => p.x === s.xStart).sort((a, b) => a.y - b.y),
-  }));
-  const steps = [];
-  let rip = 0, cross = 0;
-  shelves.forEach((s) => {
-    rip += bm.boardH;
-    const n = Math.max(0, s.pieces.length - 1);
-    cross += n * s.width;
-    steps.push(`Rip a ${Math.round(s.width)}mm strip (${bm.boardH}mm long).`);
-    steps.push(`Crosscut it into ${s.pieces.length} pcs: ${s.pieces.map((p) => (p.ref != null ? 'P' + (p.ref + 1) + ' ' : '') + Math.round(p.h) + 'mm').join(', ')}.`);
+  let plan = bm.plans && bm.plans[bi];
+  if (!plan) plan = { dir: 'L', strips: ((bm.shelves && bm.shelves[bi]) || []).map((s) => ({
+    off: s.xStart, size: s.width,
+    segs: pieces.map((p, i) => ({ p, i })).filter((x) => x.p.x === s.xStart).sort((a, b) => a.p.y - b.p.y).map((x) => ({ off: x.p.y, len: x.p.h, pieces: [x.i] })),
+  })) };
+  const across = plan.dir === 'W', stripLen = across ? bm.boardW : bm.boardH;
+  const tag = (p) => (p && p.ref != null ? 'P' + (p.ref + 1) + ' ' : '');
+  const steps = []; let total = 0;
+  plan.strips.slice().sort((a, b) => a.off - b.off).forEach((s) => {
+    const segs = s.segs.slice().sort((a, b) => a.off - b.off);
+    total += stripLen + Math.max(0, segs.length - 1) * s.size;
+    steps.push(across ? `Cut a ${Math.round(s.size)}mm strip across the board (${stripLen}mm long).` : `Rip a ${Math.round(s.size)}mm strip (${stripLen}mm long).`);
+    steps.push(`Crosscut it into ${segs.length} pcs: ${segs.map((g) => { const ps = g.pieces.map((k) => pieces[k]); return ps.length === 1 ? tag(ps[0]) + Math.round(g.len) + 'mm' : Math.round(g.len) + 'mm (' + ps.map((q) => tag(q).trim()).join(' + ') + ')'; }).join(', ')}.`);
+    segs.forEach((g) => {
+      const ps = g.pieces.map((k) => pieces[k]).filter(Boolean);
+      if (ps.length < 2) return;
+      total += (ps.length - 1) * g.len;
+      steps.push(`Cut the ${Math.round(g.len)}mm piece into ${ps.length} side by side: ${ps.map((q) => tag(q) + Math.round(across ? q.h : q.w) + 'mm').join(', ')}.`);
+    });
   });
-  return { steps, totalM: ((rip + cross) / 1000).toFixed(2) };
+  return { steps, totalM: (total / 1000).toFixed(2) };
 }
 // Identical boards (same parts in the same places) are printed once, "×N".
 function _pjoBoardGroups(bm) {
