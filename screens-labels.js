@@ -85,7 +85,8 @@ function printPartLabels(jobId) {
     labels.push({ scan, p: p.p, name: p.name, area: p.area, L: p.L, W: p.W, cutL: p.cutL, cutW: p.cutW, th: p.thickness || 0,
       material: [p.material, p.color].filter(Boolean).join(' '), ebt: p.ebt || '', sc: p.sc || 0, lc: p.lc || 0, tape: p.tape || '', where,
       work: (p.services || []).map((x) => x.service + (x.side ? ' — along ' + x.side : '')).join(' · '),
-      client: jo.client || '', project: jo.project || '', order: jo.orderRef || '' });
+      client: jo.client || '', project: jo.project || '', order: jo.orderRef || '',
+      grain: p.grained ? (p.grain || 'length') : '' });
   };
   (jo.boards || []).forEach((bm) => {
     (bm.layout || []).forEach((lay, bi) => lay.forEach((pc) => { const p = byRef[pc.ref]; if (p) label(p, 'board ' + (bi + 1) + '/' + bm.layout.length); }));
