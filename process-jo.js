@@ -241,6 +241,8 @@ async function printProcessJO(jobId, stageCode) {
   else if (hpl) cols.push(['Material', (c) => e(sp(c).material || '')], ['Size', (c) => size(sp(c).cutL || sp(c).L, sp(c).cutW || sp(c).W)],
     ['Order', (c) => e(sp(c).hplOrder === 'laminate_first' ? 'whole board, before cutting' : 'after cutting')]);
   else cols.push(['Finished L × W', (c) => size(sp(c).L, sp(c).W)], ['Material', (c) => e(sp(c).material || '')]);
+  // The client's notes and the groove position (e.g. 'groove: 1W … not at ebt side') travel with each piece.
+  if (list.some((c) => sp(c).remark)) cols.push(['Remarks', (c) => '<span style="font-size:9.5px">' + e(sp(c).remark || '') + '</span>']);
   // One tick box per working day — a piece is ticked on the day it was actually done.
   for (let d = 1; d <= PJO_DAYS; d++) cols.push(['D' + d, () => '<span class="box"></span>']);
 
