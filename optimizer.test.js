@@ -60,4 +60,39 @@ ok(job[0].realUsed === 1 && job[0].extraNeeded === 2 && job[0].boards[0].layout[
 ok(job[0].boards.filter((b) => !b.extra).flatMap((b) => b.layout).every((q) => !overlaps(q, { x: 0, y: 0, w: 100, h: 100 })), 'the corner chip is avoided');
 ok(job[1].assumedClean && job[1].extraNeeded === 0 && job[1].realUsed === 1, 'MDF not inspected: assumed as planned, fits');
 
+// 4. Three-stage re-plan around defects (2026-10-17), in step with Modcraft: first cut either way,
+//    pieces side by side in a segment, a defect never cut into, woodgrain never turned.
+{
+  const hit = (q, d) => q.x < d.x + d.w && d.x < q.x + q.w && q.y < d.y + d.h && d.y < q.y + q.h;
+  // A 700-wide piece opens a strip; two 340-wide pieces share one segment, side by side.
+  const side = O.pack3OnBoards([{ length: 300, width: 700, ref: 0 }, { length: 300, width: 340, ref: 1 }, { length: 300, width: 340, ref: 2 }],
+    [{ no: 1, w: 1220, h: 2440, defects: [] }], 3, false, 1220, 2440, 'width', 'L');
+  const seg = side.boards[0].plan.strips[0].segs.find((g) => g.pieces.length === 2);
+  ok(side.realUsed === 1 && !!seg && side.boards[0].layout[seg.pieces[1]].x === 343, 'three-stage: two pieces side by side in one segment');
+  // Random jobs on boards with random defects, both directions, rotation on: never on a defect, never
+  // overlapping, locked grain never turned, every piece placed or reported, plan lists every piece.
+  let seed = 21, bad = 0, oldN = 0, newN = 0, worse = 0;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let j = 0; j < 80; j++) {
+    const pcs = []; for (let k = 0; k < 10 + Math.floor(rnd() * 40); k++) pcs.push({ length: 60 + Math.round(rnd() * 2000), width: 40 + Math.round(rnd() * 900), grain: rnd() < 0.5 ? 'length' : '', ref: k });
+    const bds = []; for (let n = 0; n < 1 + Math.floor(rnd() * 5); n++) { const df = []; for (let d = 0; d < Math.floor(rnd() * 3); d++) df.push({ x: Math.round(rnd() * 1100), y: Math.round(rnd() * 2300), w: 20 + Math.round(rnd() * 300), h: 20 + Math.round(rnd() * 300) }); bds.push({ no: n + 1, w: 1220, h: 2440, defects: df }); }
+    ['L', 'W'].forEach((dir) => {
+      const r = O.pack3OnBoards(pcs, bds, 3, true, 1220, 2440, 'area', dir); let placed = 0;
+      r.boards.forEach((bd) => {
+        bd.layout.forEach((q, i) => { placed++; const p = pcs[q.ref];
+          if (q.x < 0 || q.y < 0 || q.x + q.w > bd.w || q.y + q.h > bd.h) bad++;
+          if (p.grain === 'length' && (q.h !== p.length || q.w !== p.width)) bad++;
+          if ((bd.defects || []).some((d) => hit(q, d))) bad++;
+          if (bd.layout.some((o, k) => k > i && hit(q, o))) bad++; });
+        if (bd.plan.strips.reduce((n, t) => n + t.segs.reduce((u, g) => u + g.pieces.length, 0), 0) !== bd.layout.length) bad++;
+      });
+      if (placed + r.oversizedCount !== pcs.length) bad++;
+    });
+    const o = O.packOnBoards(pcs, bds, 3, true, 1220, 2440, 'width'), bst = O.packBest(pcs, bds, 3, true, 1220, 2440);
+    oldN += o.realUsed + o.extraNeeded; newN += bst.realUsed + bst.extraNeeded; if (bst.realUsed + bst.extraNeeded > o.realUsed + o.extraNeeded) worse++;
+  }
+  ok(bad === 0, 'three-stage around defects: no defect cut into, no overlap, grain kept, nothing lost (160 random layouts)');
+  ok(worse === 0 && newN <= oldN, 'best plan never needs more boards than the single strip pass (' + oldN + ' → ' + newN + ')');
+}
+
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);

@@ -12,6 +12,9 @@
      3. when the real boards run out it keeps going on clean "extra" boards and COUNTS them — that
         is the number of additional boards to request.
    With no defects and enough boards the result is identical to Modcraft's (checked by the test).
+   2026-10-17: packBest also tries the three-stage pass (pack3OnBoards) both ways — first cut along
+   the length or across the width, pieces side by side in a segment — as Modcraft now does, and keeps
+   the best. Pieces turn only where the Job Order gives no grain (a plain board).
    --------------------------------------------------------------------------------------------- */
 (function (root) {
   function groupKey(o) {
@@ -120,7 +123,84 @@
     const usedArea = used.reduce((n, b) => n + pieceArea(b), 0), boardArea = used.reduce((n, b) => n + b.w * b.h, 0);
     return {
       boards: used.map((b) => ({ no: b.no, w: b.w, h: b.h, extra: b.extra, defects: b.defects, layout: b.layout,
-        shelves: b.shelves.map((s) => ({ xStart: s.xStart, width: s.height - kerf })) })),
+        shelves: b.shelves.map((s) => ({ xStart: s.xStart, width: s.height - kerf })),
+        plan: { dir: 'L', strips: b.shelves.map((s) => ({ off: s.xStart, size: s.height - kerf,
+          segs: b.layout.map((q, i) => ({ q, i })).filter((x) => x.q.x === s.xStart).sort((a, c) => a.q.y - c.q.y).map((x) => ({ off: x.q.y, len: x.q.h, pieces: [x.i] })) })) } })),
+      realUsed: used.filter((b) => !b.extra).length,
+      realUnused: bs.filter((b) => !b.extra && !b.layout.length).map((b) => b.no),
+      extraNeeded: used.filter((b) => b.extra).length,
+      utilization: boardArea ? usedArea / boardArea : 0,
+      oversizedCount: oversized, oversizedRefs,
+    };
+  }
+
+  /* THREE-STAGE pass on the real boards (2026-10-17) — in step with Modcraft's _gpack3Once: strips
+     (dir 'L' along the board's length, 'W' across its width), each strip crosscut into segments, a
+     segment cut into pieces side by side; every cut end to end. Defects stay no-cut zones: a new
+     segment moves down its strip past a defect, a new strip moves sideways past one, and a piece
+     beside another in a segment is placed only where it clears every defect. 'W' is the same
+     problem with the boards (and their defects) turned, turned back afterwards. */
+  function pack3OnBoards(pieces, boards, kerf, allowRotate, extraW, extraH, order, dir) {
+    const T = dir === 'W';
+    const tr = (d) => ({ x: d.y, y: d.x, w: d.h, h: d.w, type: d.type });
+    const items = pieces.slice().sort(ORDERS[order] || ORDERS.width);
+    const bs = boards.map((b) => ({ no: b.no, ow: b.w, oh: b.h, odef: b.defects || [], w: T ? b.h : b.w, h: T ? b.w : b.h,
+      defects: (b.defects || []).map((d) => (T ? tr(d) : d)), extra: false, widthUsed: 0, strips: [], layout: [] }));
+    const EW = T ? extraH : extraW, EH = T ? extraW : extraH;
+    let oversized = 0; const oversizedRefs = [];
+    for (const p of items) {
+      const pl = T ? p.width : p.length, pw = T ? p.length : p.width;
+      let ors = [{ length: pl, width: pw, rot: false }];
+      const locked = p.grain === 'length' || p.grain === 'width';
+      if (allowRotate && !locked && p.length !== p.width) ors.push({ length: pw, width: pl, rot: true });
+      const maxH = Math.max(EH, ...bs.map((b) => b.h)), maxW = Math.max(EW, ...bs.map((b) => b.w));
+      ors = ors.filter((o) => o.length + kerf <= maxH && o.width + kerf <= maxW);
+      if (!ors.length) { oversized++; if (p.ref != null) oversizedRefs.push(p.ref); continue; }
+      let best = null;
+      const take = (c) => { if (!best || c.sc < best.sc) best = c; };
+      for (const o of ors) bs.forEach((bd, bi) => {
+        if (!bd.layout.length) return;
+        bd.strips.forEach((st, si) => {
+          st.segs.forEach((sg, gi) => {   // 3: beside the pieces already in a segment
+            const x = st.off + sg.used;
+            if (o.length > sg.len || x + o.width + kerf > st.off + st.size + kerf) return;
+            if (bd.defects.some((d) => hits(x, sg.off, o.width + kerf, o.length + kerf, d))) return;
+            take({ t: 3, bi, si, gi, o, x, y: sg.off, sc: (st.size - (sg.used + o.width)) + (sg.len - o.length) * 0.01 });
+          });
+          if (o.width <= st.size) {        // 2: a new segment down the strip
+            const y = placeY(bd, st.off, o.width, o.length, st.lenUsed, kerf);
+            if (y >= 0) take({ t: 2, bi, si, o, x: st.off, y, sc: 1e4 + (st.size - o.width) * 10 + (bd.h - y - o.length) * 0.01 });
+          }
+        });
+        const at = placeStrip(bd, o, kerf);   // 1: a new strip on a board in use
+        if (at) take({ t: 1, bi, o, x: at.x, y: at.y, sc: 1e8 + (bd.w - at.x - o.width) });
+      });
+      if (!best) {                            // the next untouched real board, in inspection order
+        for (let bi = 0; bi < bs.length && !best; bi++) {
+          const bd = bs[bi]; if (bd.layout.length || bd.extra) continue;
+          for (const o of ors) { const at = placeStrip(bd, o, kerf); if (at) { best = { t: 1, bi, o, x: at.x, y: at.y }; break; } }
+        }
+      }
+      if (!best) {                            // an extra (clean) board
+        const o = ors.find((q) => q.length + kerf <= EH && q.width + kerf <= EW);
+        if (!o) { oversized++; if (p.ref != null) oversizedRefs.push(p.ref); continue; }
+        bs.push({ no: 'extra ' + (bs.filter((b) => b.extra).length + 1), ow: T ? EH : EW, oh: T ? EW : EH, odef: [], w: EW, h: EH, defects: [], extra: true, widthUsed: 0, strips: [], layout: [] });
+        best = { t: 1, bi: bs.length - 1, o, x: 0, y: 0 };
+      }
+      const bd = bs[best.bi], o = best.o, idx = bd.layout.length;
+      if (best.t === 3) { const st = bd.strips[best.si], sg = st.segs[best.gi]; sg.used += o.width + kerf; sg.pieces.push(idx); }
+      else if (best.t === 2) { const st = bd.strips[best.si]; st.segs.push({ off: best.y, len: o.length, used: o.width + kerf, pieces: [idx] }); st.lenUsed = best.y + o.length + kerf; }
+      else { bd.strips.push({ off: best.x, size: o.width, lenUsed: best.y + o.length + kerf, segs: [{ off: best.y, len: o.length, used: o.width + kerf, pieces: [idx] }] }); bd.widthUsed = best.x + o.width + kerf; }
+      bd.layout.push(T ? { x: best.y, y: best.x, w: o.length, h: o.width, rotated: o.rot, ref: p.ref, part: p.part }
+                       : { x: best.x, y: best.y, w: o.width, h: o.length, rotated: o.rot, ref: p.ref, part: p.part });
+    }
+    const used = bs.filter((b) => b.layout.length);
+    const pieceArea = (b) => b.layout.reduce((n, q) => n + q.w * q.h, 0);
+    const usedArea = used.reduce((n, b) => n + pieceArea(b), 0), boardArea = used.reduce((n, b) => n + b.ow * b.oh, 0);
+    return {
+      boards: used.map((b) => ({ no: b.no, w: b.ow, h: b.oh, extra: b.extra, defects: b.odef, layout: b.layout,
+        shelves: T ? [] : b.strips.map((s) => ({ xStart: s.off, width: s.size })),
+        plan: { dir: T ? 'W' : 'L', strips: b.strips.map((s) => ({ off: s.off, size: s.size, segs: s.segs.map((g) => ({ off: g.off, len: g.len, pieces: g.pieces.slice() })) })) } })),
       realUsed: used.filter((b) => !b.extra).length,
       realUnused: bs.filter((b) => !b.extra && !b.layout.length).map((b) => b.no),
       extraNeeded: used.filter((b) => b.extra).length,
@@ -144,9 +224,14 @@
       return minFill(r) < minFill(b) - 0.02;
     };
     Object.keys(ORDERS).forEach((ord) => (allowRotate ? [true, false] : [false]).forEach((rot) => {
-      if (ord === 'width' && rot === !!allowRotate) return;
-      const r = packOnBoards(pieces, boards, kerf, rot, extraW, extraH, ord);
-      if (better(r, best)) { r.strategy = ord + (rot ? ' + rotate' : ''); best = r; }
+      if (!(ord === 'width' && rot === !!allowRotate)) {
+        const r = packOnBoards(pieces, boards, kerf, rot, extraW, extraH, ord);
+        if (better(r, best)) { r.strategy = ord + (rot ? ' + rotate' : ''); best = r; }
+      }
+      ['L', 'W'].forEach((dir) => {
+        const r3 = pack3OnBoards(pieces, boards, kerf, rot, extraW, extraH, ord, dir);
+        if (better(r3, best)) { r3.strategy = '3-stage ' + (dir === 'W' ? 'across' : 'along') + ' · ' + ord + (rot ? ' + rotate' : ''); best = r3; }
+      });
     }));
     return best;
   }
@@ -178,6 +263,6 @@
     });
   }
 
-  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, packBest, optimizeJob, placeY };
+  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, pack3OnBoards, packBest, optimizeJob, placeY };
 })(typeof window !== 'undefined' ? window : globalThis);
 if (typeof module !== 'undefined') module.exports = globalThis.PmesOptimizer;

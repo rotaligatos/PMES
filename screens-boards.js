@@ -142,7 +142,7 @@ function _bdPlanResult(run, job) {
     const m = (src.find((x) => x.key === g.group_key) || {}).g || {};
     return { group_key: g.group_key, label: g.label, material: m.material, color: m.color, texture: m.texture, thickness: m.thickness, faces: m.faces,
       boardW: g.boardW, boardH: g.boardH, kerf: g.kerf, allowRotate: g.allowRotate, boardsNeeded: g.boards.length,
-      layout: g.boards.map((b) => b.layout), shelves: g.boards.map((b) => b.shelves), defects: g.boards.map((b) => b.defects || []),
+      layout: g.boards.map((b) => b.layout), shelves: g.boards.map((b) => b.shelves), plans: g.boards.map((b) => b.plan), defects: g.boards.map((b) => b.defects || []),
       boardNos: g.boards.map((b) => b.no), extraNeeded: g.extraNeeded, rejected: g.rejected, oversizedCount: g.oversizedCount, oversizedRefs: g.oversizedRefs };
   }) };
 }
