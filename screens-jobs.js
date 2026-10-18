@@ -31,7 +31,7 @@ async function renderJobsList(main) {
     box.innerHTML = list.map((j) => `
       <div class="job-row" style="${j.job_active ? '' : 'opacity:0.55;'}" onclick="goToJob('${j.id}')">
         <div class="left">
-          <span class="code">${escapeHtml(j.job_code)}</span>
+          <span class="code">${escapeHtml(j.job_code)}</span> ${testTag(j)}
           <span class="meta">${j.mother_jo && j.mother_jo.client ? escapeHtml(j.mother_jo.client) + (j.mother_jo.project ? ' — ' + escapeHtml(j.mother_jo.project) : '') + ' · ' : ''}${j.quotation_serial ? 'Quotation ' + escapeHtml(j.quotation_serial) : 'No quotation ref'} · ${fmtDate(j.created_at)}</span>
         </div>
         <div class="right">

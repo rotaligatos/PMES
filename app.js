@@ -644,6 +644,11 @@ function fmtDate(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/* Test quotations (QT-X…, Modcraft) reach PMES only for admins (database rule). Mark them on every
+   screen anyway, so an admin cannot mistake a test job for a real one. Takes a job or a serial. */
+function isTestJob(x) { return /^QT-X/.test(String((x && typeof x === 'object') ? (x.quotation_serial || x.serial || '') : (x || ''))); }
+function testTag(x) { return isTestJob(x) ? '<span class="badge test-tag" title="Test quotation — not a real job">TEST</span>' : ''; }
+
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

@@ -46,7 +46,7 @@ async function renderJobDetail(main) {
       <span>${badgeForJoReview(job)} ${badgeForJobStatus(job.status)}</span>
     </div>
     <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-      <span class="mono">${escapeHtml(job.job_code)}</span> ${badgeForDest(job.destination_company)} ${payTag}
+      <span class="mono">${escapeHtml(job.job_code)}</span> ${testTag(job)} ${badgeForDest(job.destination_company)} ${payTag}
     </h1>
     <p class="page-sub">${escapeHtml(mo.client || '')}${mo.project ? ' — ' + escapeHtml(mo.project) : ''}${mo.client || mo.project ? ' · ' : ''}${job.quotation_serial ? 'Quotation ' + escapeHtml(job.quotation_serial) : 'No quotation reference'} · Released ${fmtDate(job.created_at)}</p>
     ${!job.job_active ? `<div class="callout blocked"><strong>Inactive.</strong> KEYSTONE has not released this job (payment not met or not vouched).</div>` : ''}

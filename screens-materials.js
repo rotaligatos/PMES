@@ -51,7 +51,7 @@ async function drawMaterials() {
       const insp = toInspect(j);
       return `<div class="card">
         <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
-          <div><strong class="mono">${escapeHtml(j.job_code)}</strong> <span class="badge ${m[0]}">${m[1]}</span>
+          <div><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)} <span class="badge ${m[0]}">${m[1]}</span>
             <div class="small">${escapeHtml(j.client || '—')}${j.project ? ' — ' + escapeHtml(j.project) : ''}${j.serial ? ' · ' + escapeHtml(j.serial) : ''} · ${escapeHtml(j.company || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button>${_bdCanRun() ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}` : ''}

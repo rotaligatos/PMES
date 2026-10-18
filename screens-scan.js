@@ -65,7 +65,7 @@ async function lookupScannedComponent() {
   const job = await Data.getJob(component.job_id);
   if (!joApproved(job)) {
     resultBox.innerHTML = `<div class="card"><h2 class="mono">${escapeHtml(component.full_barcode_id)}</h2>
-      <p class="small">Job ${escapeHtml(job.job_code)} ${badgeForJoReview(job)}</p>
+      <p class="small">Job ${escapeHtml(job.job_code)} ${testTag(job)} ${badgeForJoReview(job)}</p>
       <div class="callout blocked">This Job Order has not been approved for the line yet. Nothing can be logged against it until staff have checked it and a supervisor has approved it.</div></div>`;
     return;
   }
@@ -82,7 +82,7 @@ async function lookupScannedComponent() {
     <div class="card">
       <h2 class="mono">${escapeHtml(component.full_barcode_id)}</h2>
       ${component.spec ? `<p class="small">${escapeHtml([component.spec.part, component.spec.name, component.spec.cutL && component.spec.cutW ? component.spec.cutL + ' × ' + component.spec.cutW + ' mm' : '', component.spec.special ? 'SPECIAL: ' + component.spec.special : ''].filter(Boolean).join(' · '))}</p>` : ''}
-      <p class="small">Job ${escapeHtml(job.job_code)} · ${badgeForDest(job.destination_company)}</p>
+      <p class="small">Job ${escapeHtml(job.job_code)} ${testTag(job)} · ${badgeForDest(job.destination_company)}</p>
       <p class="small">Now at: <strong>${component.current_stage_code || (component.status === 'complete' ? 'Finished' : 'Not started')}</strong> · Status: <strong>${component.status}</strong></p>
       ${seq ? '<div class="route-flow">' + seq.map((s) => '<span class="route-step ' + (doneSet.has(s) ? 'done' : '') + '">' + (doneSet.has(s) ? '✓ ' : '') + s + '</span>').join('<span class="route-arrow">→</span>') + '</div>' : ''}
 

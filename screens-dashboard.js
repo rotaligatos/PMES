@@ -63,7 +63,7 @@ async function drawDashboard(co) {
   const rows = jobs.map((j) => {
     const pct = j.planned > 0 ? Math.round(j.done / j.planned * 100) : 0;
     return `<tr style="cursor:pointer" onclick="goToJob('${j.id}')">
-      <td><strong class="mono">${escapeHtml(j.job_code)}</strong><div class="small">${escapeHtml(j.serial || '')}</div></td>
+      <td><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)}<div class="small">${escapeHtml(j.serial || '')}</div></td>
       <td>${escapeHtml(j.client || '—')}${j.project ? '<div class="small">' + escapeHtml(j.project) + '</div>' : ''}</td>
       <td>${escapeHtml(j.company || '')}</td>
       <td>${badge(reviewLbl, j.review)} ${badge(matLbl, j.material)}</td>

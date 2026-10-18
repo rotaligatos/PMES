@@ -300,6 +300,7 @@ async function printProcessJO(jobId, stageCode) {
     + '@media print{.noprint{display:none}}</style></head><body>'
     + '<div class="noprint" style="margin-bottom:8px"><button onclick="window.print()">Print</button></div>'
     + '<h1>Process JO — ' + e(label) + ' (' + e(stageCode) + ')</h1>'
+    + (isTestJob(job) ? '<div style="background:#dc2626;color:#fff;font:700 13px Arial;padding:6px 10px;margin:4px 0;letter-spacing:.06em">TEST JOB — NOT FOR PRODUCTION</div>' : '')
     + '<div class="sub">Job <b>' + e(job.job_code) + '</b> · mother JO ' + e(mjo ? mjo.joNumber : '—') + ' · quotation ' + e(job.quotation_serial || '—')
     + ' · ' + e(job.destination_company || '') + ' · <b>' + list.length + '</b> piece' + (list.length === 1 ? '' : 's') + ' of ' + components.length
     + ' · issued ' + e(new Date().toLocaleDateString()) + (State.me ? ' by ' + e(State.me.name || State.me.email) : '') + '</div>'

@@ -129,7 +129,7 @@ function pbJobHead(J) {
   const apBtn = ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
     : ss === 'supervisor_ok' && pmesCan('manager') && String(J.job.schedule_supervisor_by || '').toLowerCase() !== me ? 'Approve (manager)' : '';
   return `<div class="flex-between" style="gap:8px;flex-wrap:wrap;">
-      <div><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')">${escapeHtml(J.job.job_code)}</strong>
+      <div><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')">${escapeHtml(J.job.job_code)}</strong> ${testTag(J.job)}
         <span class="badge ${sp[0]}">${sp[1]}</span>
         <div class="small">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''}${J.job.quotation_serial ? ' · ' + escapeHtml(J.job.quotation_serial) : ''}</div>
         <div>${pbWhere(J)}</div></div>
@@ -282,7 +282,7 @@ function pbGantt(jobs) {
     }
     const paceTip = t.pace ? `Pace so far ${t.pace.toFixed(1)} piece-steps per working day · ${t.doneSteps}/${t.totalSteps} done (every piece counted once per process). Projection = remaining ÷ pace, working days only.` : '';
     return pbDelayLine(J, IMP[J.job.id]) + `<div class="g-row g-jo g-plan"><div class="g-lab">
-        <div class="g-l1"><span class="g-dot" style="background:${dot}" title="${escapeHtml(sp[1] + (ap ? ' — ' + ap : ''))}"></span><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')" title="${escapeHtml(who)}">${escapeHtml(J.job.job_code)}</strong><span class="g-kind">Plan</span></div>
+        <div class="g-l1"><span class="g-dot" style="background:${dot}" title="${escapeHtml(sp[1] + (ap ? ' — ' + ap : ''))}"></span><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')" title="${escapeHtml(who)}">${escapeHtml(J.job.job_code)}</strong>${testTag(J.job)}<span class="g-kind">Plan</span></div>
         <div class="small g-l2" title="${escapeHtml(who)}">${escapeHtml(J.client)}${J.project ? ' — ' + escapeHtml(J.project) : ''}</div>
       </div><div class="g-track">${offCells}${line(t.plan, 'plan', approved)}<div class="g-today" style="left:${todayLeft}%"></div></div><div class="g-rem">${planRem}</div></div>
       <div class="g-row g-jo g-act"><div class="g-lab">
