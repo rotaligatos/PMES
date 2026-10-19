@@ -62,7 +62,7 @@ function _jobTabFlag(t) {
   if (t === 'overview') return ['received', 'checked', 'supervisor_ok', 'returned'].includes(j.jo_review_status || 'received') ? '•' : '';
   if (t === 'materials') return ms.state === 'complete' || ms.state === 'no_mrf' ? '' : '•';
   if (t === 'production') return d.outputs.some((o) => o.status === 'entered') ? '•' : '';
-  if (t === 'parts') { const left = d.components.filter((c) => c.status !== 'complete' && c.status !== 'scrapped').length; return d.components.length ? (left ? left + ' left' : '✓') : ''; }
+  if (t === 'parts') { const held = d.components.filter((c) => c.hold === 'reject_pending').length; if (held) return held + ' rejected'; const left = d.components.filter((c) => c.status !== 'complete' && c.status !== 'scrapped').length; return d.components.length ? (left ? left + ' left' : '✓') : ''; }
   return '';
 }
 
@@ -158,7 +158,8 @@ function drawJobTab() {
   }
 
   else if (t === 'parts' && components.length) {
-    body.innerHTML = (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>';
+    body.innerHTML = '<div id="jdRejects"></div>' + (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>';
+    renderRejectsCard(job, document.getElementById('jdRejects'));
   }
 
   else if (t === 'parts') {

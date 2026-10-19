@@ -664,7 +664,7 @@ function escapeHtml(s) {
 State.me = null;
 // staff = office production staff (not a machine operator): reads everything, writes nothing yet.
 // materials = the person who completes the material transfer (confirms MRF receipt); same rank as staff.
-const PMES_RANK = { staff: 5, materials: 5, operator: 10, shift_head: 15, production_engineer: 18, supervisor: 20, manager: 30, admin: 40 };
+const PMES_RANK = { staff: 5, materials: 5, operator: 10, qa: 12, shift_head: 15, production_engineer: 18, supervisor: 20, manager: 30, admin: 40 };
 function pmesCan(minRole) {
   return (PMES_RANK[State.me && State.me.role] || 0) >= (PMES_RANK[minRole] || 99);
 }

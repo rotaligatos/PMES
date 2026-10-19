@@ -63,6 +63,7 @@ async function lookupScannedComponent() {
   }
 
   const job = await Data.getJob(component.job_id);
+  State.scanJobId = job.id;
   if (!joApproved(job)) {
     resultBox.innerHTML = `<div class="card"><h2 class="mono">${escapeHtml(component.full_barcode_id)}</h2>
       <p class="small">Job ${escapeHtml(job.job_code)} ${testTag(job)} ${badgeForJoReview(job)}</p>
@@ -97,9 +98,11 @@ async function lookupScannedComponent() {
         </select>
         <label class="field-label">Operator(s) who did the work</label>
         <input type="text" id="scanOperator" placeholder="Name(s), comma separated — blank = the operators the process JO was handed to" value="${escapeHtml(_scanOperatorSaved())}" />
-        <button class="btn primary block" style="margin-top:12px;" onclick="logScanCompletion('${component.id}')">
-          Mark done
+        ${component.hold === 'reject_pending' ? '<div class="callout blocked" style="margin-top:10px;">This piece is rejected and waiting for the supervisor. Do not process it.</div>' : `<button class="btn primary block" style="margin-top:12px;" onclick="logScanCompletion('${component.id}')">
+          Good — mark done
         </button>
+        <button class="btn danger block" style="margin-top:8px;" onclick="pieceReject('${component.id}', document.getElementById('scanStageSelect').value, 'scan')">Reject this piece…</button>`}
+        ${component.remake_no ? '<p class="small" style="margin-top:6px;"><span class="badge red">Remake ' + component.remake_no + '</span></p>' : ''}
       ` : `<p class="small">No route assigned to this job — cannot determine next stage.</p>`}
     </div>
   `;

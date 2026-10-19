@@ -431,3 +431,28 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
   HPL/MHPL (except CURE) — pick-up or turnover to WCL — the Gantt finish reads "Ready after cure" = the
   day after lamination's last day. When a process follows, the existing rule stands (starts the day after
   lamination's first day, finishes no earlier than the day after its last).
+
+## 2026-10-19 — Production flow corrected (Rommel's full description)
+1. **Inbound check** — the Material Inbound In-charge (role `materials`) checks every item from the KEYSTONE MRF
+   and every **client-supplied** item (`pmes_client_materials`, seeded from the quotation's client-supplied list when
+   the PMES job is created; items not listed can be added on arrival) as OK / Short / Damaged / **Wrong item**
+   (note; photo for damaged and wrong). The whole check prints as one **Inbound inspection form** (MRF, client items,
+   boards, concerns, three signature lines).
+2. **Checker analysis** — the checker may RUN the cutting optimizer (not save a plan) and **report a material concern**
+   to office staff (`pmes_material_concerns`, `pmes_concern_raise` / `_resolve`). The job is flagged everywhere until
+   staff close it; `pmes_jo_check` refuses while a concern is open, and unchecked client items count as incomplete.
+   ⚠ This reverses the 2026-09-28 rule that the materials person may not run the optimizer.
+3. JO check by staff → supervisor approval → process JOs (unchanged). **Operator names are entered by a supervisor**
+   (`pmes_pjo_handout` now rank ≥ 20; shift heads can no longer hand out). The schedule step is kept before hand-out.
+4. **Reject** — operator ticks a piece good (done) or **Reject…** (reason, optional photo; `pmes_component_reject`).
+   The piece is on hold (`pmes_components.hold`) and cannot be ticked. The supervisor confirms or overrules
+   (`pmes_reject_verify`). Confirmed → **Remake N**: the same piece record restarts at its first process, its earlier
+   ticks move to `pmes_component_done_history` (so every count stays right), label reprinted "REMAKE N".
+5. **Remake material** — office staff "Fit remakes into the cut plan": `PmesOptimizer.fitRemakes` places remakes in
+   real guillotine offcuts of the adopted plan (or Modcraft's layout), grain kept, defects avoided, nothing planned
+   moves (`optimizer.test.js`). Saved as a new plan version (revision) with the remakes highlighted orange on screen
+   and on the printed process JO; a supervisor adopts it. Remakes that fit nowhere → material concern → extra boards.
+6. **QA** — new role `qa` (rank 12, set in the Command Center). QA passes a piece by ticking QC, or rejects it at QC:
+   final, remade straight away. The job cannot be **handed off** while a reject is pending or any routed piece
+   (remakes included) is not through every process (`pmes_job_handoff_guard`).
+All rules tested by impersonation in rolled-back transactions.

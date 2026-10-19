@@ -62,7 +62,7 @@ function renderPieceMatrix(job, stages, components, done) {
   };
   return `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Pieces by process</h2>
       <span class="small">${components.filter((c) => c.status === 'complete').length} of ${components.length} pieces finished every process</span></div>
-    <p class="small" style="margin-top:4px;">✓ done · ○ not done yet · — not on that piece's route. ${canMark ? 'Tap ○ to mark a piece done at that process; tap ✓ to undo (a reason is asked). Or tick pieces and mark them together.' : ''}</p>
+    <p class="small" style="margin-top:4px;">✓ good / done · ○ not done yet · — not on that piece's route. ${canMark ? 'Tap ○ to mark a piece good at that process; tap ✓ to undo (a reason is asked). <strong>Reject…</strong> sends a bad piece to the supervisor. QA passes a piece by ticking QC, or rejects it.' : ''}</p>
     <div class="pc-tools">
       <input type="text" placeholder="Search part, name, size, barcode…" value="${escapeHtml(PieceState.q)}" oninput="PieceState.q=this.value;_redrawPieces()">
       <select onchange="PieceState.stage=this.value;_redrawPieces()"><option value="">All processes</option>${codes.map((c) => `<option ${PieceState.stage === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select>
@@ -78,7 +78,8 @@ function renderPieceMatrix(job, stages, components, done) {
         return `<tr class="${c.status === 'complete' ? 'pc-fin' : ''}">${canMark ? `<td><input type="checkbox" class="pc-sel" value="${c.id}" ${PieceState.sel[c.id] ? 'checked' : ''} onchange="PieceState.sel['${c.id}']=this.checked;_redrawPieces()"></td>` : ''}
           <td><strong>${escapeHtml(L.part || '—')}</strong></td><td>${escapeHtml(L.name)}<div class="small mono">${escapeHtml(c.scan_code || c.full_barcode_id)}</div></td><td class="small">${escapeHtml(L.size)}</td>
           ${codes.map((code) => cell(c, code)).join('')}
-          <td>${c.status === 'complete' ? '<span class="badge green">Finished</span>' : c.status === 'scrapped' ? '<span class="badge red">Scrapped</span>' : (c.current_stage_code ? '<span class="badge amber">' + escapeHtml(c.current_stage_code) + '</span>' : '<span class="badge gray">Not started</span>')}</td></tr>`; }).join('')
+          <td>${c.hold === 'reject_pending' ? '<span class="badge red">Rejected — waiting for supervisor</span>' : c.status === 'complete' ? '<span class="badge green">Finished</span>' : c.status === 'scrapped' ? '<span class="badge red">Scrapped</span>' : (c.current_stage_code ? '<span class="badge amber">' + escapeHtml(c.current_stage_code) + '</span>' : '<span class="badge gray">Not started</span>')}${c.remake_no ? ' <span class="badge red">Remake ' + c.remake_no + '</span>' : ''}
+            ${canMark && c.status !== 'scrapped' && c.hold !== 'reject_pending' && (c.current_stage_code || c.status === 'complete') ? `<button class="btn outline sm" style="margin-left:4px;" onclick="pieceReject('${c.id}','${escapeHtml(c.status === 'complete' ? 'QC' : c.current_stage_code)}')">Reject…</button>` : ''}</td></tr>`; }).join('')
         || `<tr><td colspan="${codes.length + 5}" class="small">No pieces match.</td></tr>`}
     </tbody></table></div></div>`;
 }

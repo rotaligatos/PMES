@@ -95,4 +95,23 @@ ok(job[1].assumedClean && job[1].extraNeeded === 0 && job[1].realUsed === 1, 'MD
   ok(worse === 0 && newN <= oldN, 'best plan never needs more boards than the single strip pass (' + oldN + ' → ' + newN + ')');
 }
 
+// Remakes into offcuts: one strip of 600 wide leaves a 617-wide offcut beside it (1220 - 600 - 3).
+{
+  const offs = O.offcuts(1220, 2440, [{ x: 0, y: 0, w: 600, h: 2000 }], 3);
+  ok(offs.some((o) => o.x === 603 && o.w === 617 && o.h === 2440) && offs.some((o) => o.y === 2003 && o.h === 437), 'offcuts: beside and below a piece, minus the kerf');
+  const groups = [{ label3: 'PB white 18mm', boardW: 1220, boardH: 2440, kerf: 3, allowRotate: true, boards: [{ no: 1, layout: [{ x: 0, y: 0, w: 600, h: 2440 }], defects: [] }] }];
+  const r = O.fitRemakes(groups, [{ id: 'c1', rejectId: 'r1', label3: 'PB white 18mm', boardNo: 1, L: 2000, W: 500, grain: 'length', part: 'P9' }]);
+  const pc = r.placed[0];
+  ok(r.placed.length === 1 && pc.x >= 603 && pc.w === 500 && pc.h === 2000, 'remake placed in the offcut, grain along the length');
+  ok(r.groups[0].boards[0].layout.some((p) => p.remake && p.componentId === 'c1') && groups[0].boards[0].layout.length === 1, 'remake highlighted in the revised plan; original plan untouched');
+  const lay = r.groups[0].boards[0].layout; ok(!lay.some((a, i) => lay.some((b, j) => i < j && overlaps(a, b))), 'no overlap with planned pieces');
+  const r2 = O.fitRemakes(groups, [{ id: 'c2', label3: 'PB white 18mm', L: 2440, W: 700, grain: 'length' }]);
+  ok(r2.placed.length === 0 && r2.unplaced.length === 1, 'too big for any offcut → reported, so extra boards can be requested');
+  const r3 = O.fitRemakes([{ label3: 'X', boardW: 1220, boardH: 2440, kerf: 3, boards: [{ no: 1, layout: [{ x: 0, y: 0, w: 600, h: 2440 }], defects: [{ x: 700, y: 0, w: 100, h: 2440 }] }] }],
+    [{ id: 'c3', label3: 'X', L: 2000, W: 500, grain: 'length' }]);
+  ok(r3.placed.length === 0, 'a defect splitting the offcut is never cut into');
+  const r4 = O.fitRemakes(groups, [{ id: 'c4', label3: 'PB white 18mm', L: 500, W: 1000, grain: 'none' }]);
+  ok(r4.placed.length === 1 && r4.placed[0].w <= 617, 'plain board: remake turned to fit');
+}
+
 console.log(fails ? fails + ' FAILED' : 'All passed'); process.exit(fails ? 1 : 0);

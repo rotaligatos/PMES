@@ -41,8 +41,10 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
   pieces.forEach((pc, i) => {
     const on = !refsOn || refsOn.has(pc.ref);
     const hue = ((pc.ref != null ? pc.ref : i) * 47) % 360;
-    r += `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="${on ? `hsl(${hue},55%,80%)` : '#eeeeee'}" stroke="#5a4a3a" stroke-width="${sw}"></rect>`;
-    const label = (pc.ref != null ? 'P' + (pc.ref + 1) + ' ' : '') + Math.round(pc.h) + '×' + Math.round(pc.w) + (pc.rotated ? ' ⟳' : '');
+    // remakes added in a plan revision are highlighted for traceability (Rommel 2026-10-19)
+    r += pc.remake ? `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="#ffd6a8" stroke="#d9480f" stroke-width="${sw * 2.5}"></rect>`
+      : `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="${on ? `hsl(${hue},55%,80%)` : '#eeeeee'}" stroke="#5a4a3a" stroke-width="${sw}"></rect>`;
+    const label = (pc.remake ? 'REMAKE ' + (pc.part || '') + ' ' : (pc.ref != null ? 'P' + (pc.ref + 1) + ' ' : '')) + Math.round(pc.h) + '×' + Math.round(pc.w) + (pc.rotated ? ' ⟳' : '');
     if (pc.w > fs * 0.62 * label.length && pc.h > fs * 1.5)
       r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle" fill="#222">${_pjoE(label)}</text>`;
     else if (pc.ref != null && pc.w > fs * 2.2 && pc.h > fs * 1.5)

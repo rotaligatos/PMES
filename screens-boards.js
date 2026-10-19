@@ -109,8 +109,9 @@ function _bdBoardSvg(b, maxPx) {
   let r = '';
   (b.layout || []).forEach((pc) => {
     const hue = ((pc.ref != null ? pc.ref : 0) * 47) % 360;
-    r += `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="hsl(${hue},55%,80%)" stroke="#5a4a3a" stroke-width="${Math.max(1, 1.4 / scale)}"></rect>`;
-    if (pc.w > fs * 3 && pc.h > fs * 1.6) r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle">${escapeHtml(pc.part || '')}</text>`;
+    r += pc.remake ? `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="#ffd6a8" stroke="#d9480f" stroke-width="${Math.max(2, 3 / scale)}"></rect>`
+      : `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="hsl(${hue},55%,80%)" stroke="#5a4a3a" stroke-width="${Math.max(1, 1.4 / scale)}"></rect>`;
+    if (pc.w > fs * 3 && pc.h > fs * 1.6) r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle">${escapeHtml((pc.remake ? 'REMAKE ' : '') + (pc.part || ''))}</text>`;
   });
   (b.defects || []).forEach((d) => { r += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" fill="rgba(220,40,40,.35)" stroke="#c0271d" stroke-width="${Math.max(1, 2 / scale)}"></rect>`; });
   return `<div style="display:inline-block;margin:4px;text-align:center"><svg width="${pw}" height="${ph}" viewBox="0 0 ${b.w} ${b.h}" style="background:${b.extra ? '#f3f7ff' : '#fff'};border:2px solid ${b.extra ? '#1c5a9c' : '#8a7a63'}">${r}</svg>

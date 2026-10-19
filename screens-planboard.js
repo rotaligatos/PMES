@@ -400,7 +400,7 @@ function pbToday(jobs) {
 }
 
 function pbHandoutBtn(J, p) {
-  if (!pmesCan('shift_head') || p.status === 'done') return '';
+  if (!pmesCan('supervisor') || p.status === 'done') return '';   // Rommel 2026-10-19: the supervisor assigns the operators
   if (J.job.schedule_status !== 'approved') return '<span class="small">Hand-out after the schedule is approved</span>';
   return `<button class="btn ${p.handed_out_at ? 'outline' : 'primary'} sm" onclick="pbHandout('${p.id}')">${p.handed_out_at ? 'Change hand-out' : 'Hand out'}</button>`;
 }

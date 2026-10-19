@@ -263,6 +263,79 @@
     });
   }
 
-  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, pack3OnBoards, packBest, optimizeJob, placeY };
+
+  /* ---- Remakes into offcuts (Rommel 2026-10-19) ----
+     A confirmed reject must be cut again. Before asking for extra boards, try the offcuts the current
+     plan leaves. Offcuts are found the way a panel saw makes them: recursively split the board along
+     straight through-cuts that cross no piece and no defect (guillotine); any piece-free region left
+     is a real offcut. A remake goes into the smallest offcut it fits (turned only when its grain allows),
+     and that offcut is split again for the next one. Nothing already planned moves. */
+  function _overlapsAny(rect, rs) { return rs.some((d) => hits(rect.x, rect.y, rect.w, rect.h, d)); }
+  function offcuts(W, H, rects, kerf) {
+    const out = [];
+    const k = +kerf || 0;
+    (function split(R, inside, depth) {
+      if (R.w <= 0 || R.h <= 0) return;
+      if (!inside.length) { out.push(R); return; }
+      if (depth > 200) return;
+      // vertical through-cuts: at a piece's right edge, crossing no piece
+      const vx = [...new Set(inside.map((p) => p.x + p.w))].filter((x) => x > R.x && x < R.x + R.w && !inside.some((p) => p.x < x && p.x + p.w > x)).sort((a, b) => a - b);
+      if (vx.length) {
+        const x = vx[0];
+        split({ x: R.x, y: R.y, w: x - R.x, h: R.h }, inside.filter((p) => p.x + p.w <= x), depth + 1);
+        const nx = x + k; split({ x: nx, y: R.y, w: R.x + R.w - nx, h: R.h }, inside.filter((p) => p.x >= x), depth + 1);
+        return;
+      }
+      const hy = [...new Set(inside.map((p) => p.y + p.h))].filter((y) => y > R.y && y < R.y + R.h && !inside.some((p) => p.y < y && p.y + p.h > y)).sort((a, b) => a - b);
+      if (hy.length) {
+        const y = hy[0];
+        split({ x: R.x, y: R.y, w: R.w, h: y - R.y }, inside.filter((p) => p.y + p.h <= y), depth + 1);
+        const ny = y + k; split({ x: R.x, y: ny, w: R.w, h: R.y + R.h - ny }, inside.filter((p) => p.y >= y), depth + 1);
+        return;
+      }
+      // a single piece that fills R from its top-left: whatever is to its right / below it is offcut
+      if (inside.length === 1) {
+        const p = inside[0];
+        if (p.x > R.x) { split({ x: R.x, y: R.y, w: p.x - k - R.x, h: R.h }, [], depth + 1); split({ x: p.x, y: R.y, w: R.x + R.w - p.x, h: R.h }, inside, depth + 1); return; }
+        if (p.y > R.y) { split({ x: R.x, y: R.y, w: R.w, h: p.y - k - R.y }, [], depth + 1); split({ x: R.x, y: p.y, w: R.w, h: R.y + R.h - p.y }, inside, depth + 1); return; }
+        const rx = p.x + p.w + k, by = p.y + p.h + k;
+        if (R.x + R.w - rx > 0) out.push({ x: rx, y: R.y, w: R.x + R.w - rx, h: R.h });
+        if (R.y + R.h - by > 0) out.push({ x: R.x, y: by, w: Math.min(p.w, R.w), h: R.y + R.h - by });
+        return;
+      }
+      // not separable by through-cuts: no reliable offcut here
+    })({ x: 0, y: 0, w: W, h: H }, rects.map((r) => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h })), 0);
+    return out.filter((o) => o.w > 0 && o.h > 0);
+  }
+  // groups: [{ label3, boardW, boardH, kerf, allowRotate, boards:[{ no, layout:[{x,y,w,h,...}], defects:[...] }] }]
+  // remakes: [{ id, label3, boardNo, L, W, grain, part }]  (L along the board length when grain is locked)
+  function fitRemakes(groups, remakes) {
+    const out = JSON.parse(JSON.stringify(groups)), placed = [], unplaced = [];
+    remakes.slice().sort((a, b) => (b.L * b.W) - (a.L * a.W)).forEach((rm) => {
+      const g = out.find((x) => x.label3 === rm.label3);
+      if (!g) { unplaced.push(Object.assign({ why: 'no board of this material in the plan' }, rm)); return; }
+      const k = +g.kerf || 0, locked = rm.grain === 'length' || rm.grain === 'width';
+      const shapes = locked ? [[rm.W, rm.L]] : [[rm.W, rm.L], [rm.L, rm.W]];   // [w across the board, h along it]
+      let best = null;
+      const order = g.boards.map((b, i) => i).sort((a, b) => ((g.boards[a].no === rm.boardNo) ? -1 : 0) - ((g.boards[b].no === rm.boardNo) ? -1 : 0));
+      order.forEach((bi) => {
+        const b = g.boards[bi];
+        const obst = (b.layout || []).concat(b.defects || []);
+        offcuts(g.boardW, g.boardH, obst, k).forEach((o) => shapes.forEach(([w, h]) => {
+          if (w <= o.w && h <= o.h && !_overlapsAny({ x: o.x, y: o.y, w, h }, b.defects || [])) {
+            const waste = o.w * o.h - w * h;
+            if (!best || waste < best.waste) best = { bi, x: o.x, y: o.y, w, h, waste };
+          }
+        }));
+      });
+      if (!best) { unplaced.push(Object.assign({ why: 'no offcut large enough' }, rm)); return; }
+      const b = g.boards[best.bi];
+      b.layout = (b.layout || []).concat([{ x: best.x, y: best.y, w: best.w, h: best.h, part: rm.part, remake: true, componentId: rm.id, rejectId: rm.rejectId, rotated: best.w !== rm.W }]);
+      placed.push({ id: rm.id, rejectId: rm.rejectId, group: g.label3, boardNo: b.no, x: best.x, y: best.y, w: best.w, h: best.h });
+    });
+    return { groups: out, placed, unplaced };
+  }
+
+  root.PmesOptimizer = { groupKey, groupLabel, packOnBoards, pack3OnBoards, packBest, optimizeJob, placeY, offcuts, fitRemakes };
 })(typeof window !== 'undefined' ? window : globalThis);
 if (typeof module !== 'undefined') module.exports = globalThis.PmesOptimizer;

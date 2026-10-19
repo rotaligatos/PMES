@@ -100,7 +100,7 @@ async function concernRaise(jobId, analysis, kind) {
   const k = kind || (prompt('What kind of concern?\n1 Not enough material\n2 Damaged material\n3 Wrong item received\n4 Short delivery\n5 Client-supplied problem\n6 Other', '1') || '').trim();
   const map = { 1: 'not_enough', 2: 'damaged', 3: 'wrong_item', 4: 'short', 5: 'client_supplied', 6: 'other' };
   const kk = map[k] || (CONCERN_KIND[k] ? k : null); if (!kk) return;
-  const def = analysis && analysis.groups ? analysis.groups.filter((g) => g.extraNeeded).map((g) => g.label + ': ' + g.extraNeeded + ' more board(s) needed').join('; ') : '';
+  const def = analysis && analysis.finding ? analysis.finding : analysis && analysis.groups ? analysis.groups.filter((g) => g.extraNeeded).map((g) => g.label + ': ' + g.extraNeeded + ' more board(s) needed').join('; ') : '';
   const finding = (prompt('Describe what you found (it goes to the office staff):', def) || '').trim(); if (!finding) return;
   try { await InboundData.rpc('pmes_concern_raise', { p_job: jobId, p_kind: kk, p_finding: finding, p_analysis: analysis || null }); toast('Concern sent to the office staff. The Job Order is flagged.', 'success'); render(); }
   catch (e) { toast(e.message, 'error'); }
