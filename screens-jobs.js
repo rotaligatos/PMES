@@ -14,9 +14,10 @@ async function renderJobsList(main) {
     </div>
   `;
 
-  let jobs = [];
+  let jobs = [], concernJobs = {};
   try {
     jobs = await Data.listJobs();
+    concernJobs = await InboundData.openConcernJobs().catch(() => ({}));
   } catch (e) {
     document.getElementById('jobsList').innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load jobs.</p></div>`;
     return;
@@ -37,6 +38,7 @@ async function renderJobsList(main) {
         <div class="right">
           ${!j.job_active ? '<span class="badge gray">Inactive</span>' : ''}
           ${badgeForDest(j.destination_company)}
+          ${concernJobs[j.id] ? '<span class="badge red">⚠ Material concern</span>' : ''}
           ${badgeForJoReview(j)}
           ${badgeForJobStatus(j.status)}
         </div>

@@ -81,6 +81,7 @@ function drawJobTab() {
   if (t === 'overview') {
     const done = stages.filter((s) => s.status === 'complete').length;
     body.innerHTML = `
+      <div id="jdConcernFlag"></div>
       ${renderJoReviewCard(job, joReviews)}
       ${(job.mother_jo && (job.mother_jo.boards || []).length) ? '<div id="jdBoardsSummary"></div>' : ''}
       ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
@@ -91,6 +92,7 @@ function drawJobTab() {
         ${joApproved(job) ? '<button class="btn outline sm" style="margin-top:8px;" onclick="setJobTab(\'production\')">Go to Production →</button>' : ''}</div>` : ''}
       <div class="card"><h2>Job notes</h2><p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p></div>`;
     if (document.getElementById('jdBoardsSummary')) renderBoardsSummary(job, document.getElementById('jdBoardsSummary'));
+    InboundData.concerns(job.id).then((cc) => { const o = cc.filter((c) => c.status === 'open'); const el = document.getElementById('jdConcernFlag'); if (el && o.length) el.innerHTML = `<div class="callout blocked" style="margin-bottom:10px;"><strong>Material concern open</strong> — ${o.map((c) => escapeHtml(c.finding)).join('; ')} <button class="btn outline sm" onclick="setJobTab('materials')">Open materials</button></div>`; }).catch(() => {});
   }
 
   else if (t === 'materials') {
@@ -99,8 +101,8 @@ function drawJobTab() {
     const mrs = State.jobMRs || [];
     body.innerHTML = mrs.length ? `<div class="card"><h2>Material requests (MRF)</h2>
         <p class="small">What KEYSTONE authorized for this job, what the warehouse processed, and what arrived. The materials person confirms receipt here or on the Materials tab.</p>
-        ${renderMRBlocks(mrs)}</div>`
-      : `<div class="card"><div class="flex-between"><h2 class="mb-0">Materials required &amp; received</h2>
+        ${renderMRBlocks(mrs)}</div><div id="jdInbound"></div>`
+      : `<div id="jdInbound"></div><div class="card"><div class="flex-between"><h2 class="mb-0">Materials required &amp; received</h2>
           ${materialsReady ? '<span class="badge green">Ready for cutting</span>' : (materials.length ? '<span class="badge amber">Awaiting materials</span>' : '<span class="badge gray">Not specified</span>')}</div>
         <p class="small" style="margin-top:6px;">This job has no MRF from KEYSTONE, so its materials are kept here by hand.</p>
         ${materials.length ? materials.map((m) => {
@@ -114,6 +116,7 @@ function drawJobTab() {
             <button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button></div>`;
         }).join('') : '<p class="small" style="margin-top:8px;">No materials specified yet for this job.</p>'}
         <button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button></div>`;
+    if (document.getElementById('jdInbound')) renderInboundCards(job, document.getElementById('jdInbound'));
   }
 
   else if (t === 'cutting') {
@@ -397,7 +400,7 @@ function renderMRBlocks(mrs) {
     return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
   const condPill = (l) => {
     if (!l.condition) return '';
-    const c = { ok: ['green', 'OK'], short: ['amber', 'Short'], damaged: ['red', 'Damaged'] }[l.condition] || ['gray', l.condition];
+    const c = { ok: ['green', 'OK'], short: ['amber', 'Short'], damaged: ['red', 'Damaged'], wrong_item: ['red', 'Wrong item'] }[l.condition] || ['gray', l.condition];
     return '<span class="badge ' + c[0] + '">' + c[1] + '</span>';
   };
   return mrs.map((m) => {
@@ -422,7 +425,7 @@ function renderMRBlocks(mrs) {
         </tbody></table></div>`;
     }
     return `<div class="mr-block">${head}
-      <p class="small" style="margin-top:8px;">Check every item: enter how many arrived in good condition, then mark it <strong>OK</strong>, <strong>Short</strong> (say what is missing) or <strong>Damaged</strong> (describe it and take a photo).</p>
+      <p class="small" style="margin-top:8px;">Check every item: enter how many of the <strong>right item</strong> arrived in good condition, then mark it <strong>OK</strong>, <strong>Short</strong> (say what is missing), <strong>Damaged</strong> or <strong>Wrong item</strong> (describe it and take a photo).</p>
       ${lines.map((l) => {
         const can = l.issued > 0;
         const cond = l.condition || '';
@@ -432,11 +435,11 @@ function renderMRBlocks(mrs) {
           ${can ? `<div class="mr-line-inputs">
             <label class="small">Arrived in good condition<input type="number" min="0" max="${l.issued}" step="any" class="mrQty" value="${l.received || ''}" placeholder="0" oninput="mrQtyChanged(this)"></label>
             <div class="mr-cond" role="radiogroup">
-              ${[['ok', 'OK'], ['short', 'Short'], ['damaged', 'Damaged']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${cond === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}
+              ${[['ok', 'OK'], ['short', 'Short'], ['damaged', 'Damaged'], ['wrong_item', 'Wrong item']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${cond === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}
             </div>
-            <input type="text" class="mrNote" placeholder="Note — what is short or damaged" value="${escapeHtml(l.note || '')}">
-            <div class="mrPhotoWrap" style="${cond === 'damaged' ? '' : 'display:none;'}">
-              <label class="small">Photo of the damage (required)<input type="file" accept="image/*" capture="environment" class="mrPhoto"></label>
+            <input type="text" class="mrNote" placeholder="Note — what is short, damaged, or what arrived instead" value="${escapeHtml(l.note || '')}">
+            <div class="mrPhotoWrap" style="${['damaged', 'wrong_item'].includes(cond) ? '' : 'display:none;'}">
+              <label class="small">Photo (required for damaged or wrong item)<input type="file" accept="image/*" capture="environment" class="mrPhoto"></label>
               ${l.photo ? `<button class="btn outline sm" onclick="viewReceiptPhoto('${encodeURIComponent(l.photo)}')">View saved photo</button>` : ''}
             </div>
           </div>` : '<div class="small" style="margin-top:6px;">Nothing processed on this line yet.</div>'}
@@ -452,7 +455,7 @@ function mrSetCond(btn, v) {
   const row = btn.closest('.mr-line');
   row.querySelectorAll('.mr-cond-btn').forEach((b) => { b.className = 'mr-cond-btn' + (b.dataset.v === v ? ' on ' + v : ''); });
   row.dataset.cond = v;
-  row.querySelector('.mrPhotoWrap').style.display = v === 'damaged' ? '' : 'none';
+  row.querySelector('.mrPhotoWrap').style.display = (v === 'damaged' || v === 'wrong_item') ? '' : 'none';
 }
 function mrQtyChanged(inp) {
   const row = inp.closest('.mr-line'), iss = Number(row.dataset.issued), v = inp.value === '' ? null : Number(inp.value);
@@ -474,11 +477,11 @@ async function submitMRReceive(mrId) {
     const cond = row.dataset.cond || ((row.querySelector('.mr-cond-btn.on') || {}).dataset || {}).v || '';
     const item = row.querySelector('strong').textContent;
     if (!(qty >= 0)) return toast('Enter how many arrived for ' + item + '.', 'error');
-    if (!cond) return toast('Mark ' + item + ' as OK, Short or Damaged.', 'error');
+    if (!cond) return toast('Mark ' + item + ' as OK, Short, Damaged or Wrong item.', 'error');
     const note = row.querySelector('.mrNote').value.trim();
-    if ((cond === 'short' || cond === 'damaged') && !note) return toast('Add a note for ' + item + ' — what is ' + cond + '.', 'error');
+    if ((cond === 'short' || cond === 'damaged' || cond === 'wrong_item') && !note) return toast('Add a note for ' + item + ' — ' + (cond === 'wrong_item' ? 'what arrived instead' : 'what is ' + cond) + '.', 'error');
     const line = { id: row.dataset.line, qty, condition: cond, note: note || null };
-    if (cond === 'damaged') {
+    if (cond === 'damaged' || cond === 'wrong_item') {
       const f = row.querySelector('.mrPhoto').files[0];
       if (f) {
         const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
@@ -486,7 +489,7 @@ async function submitMRReceive(mrId) {
         const { error } = await sb.storage.from('pmes-receipts').upload(path, f, { contentType: f.type || 'image/jpeg', upsert: false });
         if (error) return toast('Photo upload failed for ' + item + ': ' + error.message, 'error');
         line.photo = path;
-      } else if (!row.querySelector('.mrPhotoWrap button')) return toast('Take a photo of the damage on ' + item + '.', 'error');
+      } else if (!row.querySelector('.mrPhotoWrap button')) return toast('Take a photo of ' + item + '.', 'error');
     }
     lines.push(line);
   }

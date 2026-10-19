@@ -35,6 +35,9 @@ const BoardsData = {
 
 function _bdCanInspect() { return (State.me && State.me.role === 'materials') || pmesCan('supervisor'); }
 function _bdCanRun() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
+// The materials checker may RUN the optimizer to see whether what arrived is enough (Rommel 2026-10-19), and report it
+// to office staff; saving a plan and requesting extra stay with office staff and supervisors.
+function _bdCanAnalyse() { return _bdCanRun() || (State.me && State.me.role === 'materials'); }
 function _bdGroups(job) { return ((job.mother_jo && job.mother_jo.boards) || []).map((g) => ({ g, key: PmesOptimizer.groupKey(g), label: PmesOptimizer.groupLabel(g) })); }
 
 async function renderBoardsCards(job, el) {
@@ -92,7 +95,7 @@ async function renderBoardsCards(job, el) {
       <p class="small">The materials person inspects every board: mark each defect on the board drawing, or reject the board. The cutting optimization plans around what is recorded here.</p>
       ${insp}</div>
     <div class="card" id="bdOptimize"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
-      ${_bdCanRun() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
+      ${_bdCanAnalyse() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
       <p class="small" style="margin-top:6px;"><strong>Run by the office staff who review the Job Order</strong> (or a supervisor and above), after the materials person has inspected the boards. Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
       ${run ? _bdRunHtml(run) : ''}
       ${planRows ? `<table class="comp-table" style="margin-top:10px;"><thead><tr><th>Plan</th><th>Status</th><th>Extra boards</th><th>By</th><th></th></tr></thead><tbody>${planRows}</tbody></table>` : '<p class="small">No plan saved yet — the Modcraft layout is used until one is adopted.</p>'}
@@ -123,6 +126,7 @@ function _bdRunHtml(run) {
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
       ${_bdCanRun() ? `<button class="btn primary sm" onclick="saveCutPlan('${run.jobId}')">Save as plan</button>` : ''}
       ${totalExtra && _bdCanRun() ? `<button class="btn outline sm" onclick="requestExtraBoards('${run.jobId}')">Request ${totalExtra} additional board(s)…</button>` : ''}
+      ${typeof _inCanRaise === 'function' && _inCanRaise() ? `<button class="btn ${totalExtra ? 'primary' : 'outline'} sm" onclick="concernFromRun('${run.jobId}')">${totalExtra ? 'Report shortage to office staff…' : 'Report a concern to office staff…'}</button>` : ''}
     </div></div>`;
 }
 

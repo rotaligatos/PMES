@@ -11,7 +11,7 @@ async function renderMaterials(main) {
   try { onlyAction = localStorage.getItem('pmes_mat_all') !== '1'; } catch (e) {}
   main.innerHTML = `
     <div class="flex-between" style="margin-bottom:10px;gap:8px;flex-wrap:wrap;">
-      <p class="page-sub" style="margin:0;">Receive what the warehouse sent, inspect boards, follow extra-board requests.</p>
+      <p class="page-sub" style="margin:0;">Check every inbound material — from the warehouse (MRF) and from the client — inspect boards, report concerns to office staff.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label class="small" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="matOnly" ${onlyAction ? 'checked' : ''}> Needs action only</label>
         <select id="matCo" style="width:auto;min-width:160px;"><option value="">All plants</option><option value="MSSI">MSSI</option><option value="WCLI">WCLI</option><option value="CWLI">CWLI</option></select>
@@ -33,7 +33,8 @@ async function drawMaterials() {
   const jobs = data || [];
   const toReceive = (j) => (j.mrs || []).filter((m) => ['partially_issued', 'issued', 'partially_received'].includes(m.status)).length;
   const toInspect = (j) => Math.max(0, (j.boards_planned || 0) - (j.boards_inspected || 0));
-  const needs = (j) => toReceive(j) > 0 || toInspect(j) > 0 || (j.board_requests_open || 0) > 0;
+  const clientOpen = (j) => (j.client_materials || []).filter((l) => !l.condition).length;
+  const needs = (j) => toReceive(j) > 0 || toInspect(j) > 0 || (j.board_requests_open || 0) > 0 || clientOpen(j) > 0 || (j.concerns || []).length > 0;
   const tot = { recv: jobs.reduce((n, j) => n + toReceive(j), 0), insp: jobs.reduce((n, j) => n + toInspect(j), 0),
     req: jobs.reduce((n, j) => n + (j.board_requests_open || 0), 0),
     wait: jobs.reduce((n, j) => n + (j.mrs || []).filter((m) => m.status === 'authorized').length, 0) };
@@ -51,15 +52,19 @@ async function drawMaterials() {
       const insp = toInspect(j);
       return `<div class="card">
         <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
-          <div><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)} <span class="badge ${m[0]}">${m[1]}</span>
+          <div><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)} <span class="badge ${m[0]}">${m[1]}</span>${(j.concerns || []).length ? ' <span class="badge red">⚠ Material concern</span>' : ''}${clientOpen(j) ? ' <span class="badge amber">' + clientOpen(j) + ' client item(s) to check</span>' : ''}
             <div class="small">${escapeHtml(j.client || '—')}${j.project ? ' — ' + escapeHtml(j.project) : ''}${j.serial ? ' · ' + escapeHtml(j.serial) : ''} · ${escapeHtml(j.company || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button>${_bdCanRun() ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}` : ''}
             ${j.board_requests_open ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">${j.board_requests_open} extra-board request(s)</button>` : ''}
+            <button class="btn outline sm" onclick="printInboundForm('${j.job_id}')">🖨 Inspection form</button>
+            ${_inCanRaise() ? `<button class="btn outline sm" onclick="concernRaise('${j.job_id}')">Report concern…</button>` : ''}
             <button class="btn outline sm" onclick="goToJob('${j.job_id}','materials')">Open job</button>
           </div>
         </div>
+        ${(j.concerns || []).length ? '<div class="callout blocked" style="margin-top:8px;"><strong>Open concern:</strong> ' + j.concerns.map((c) => escapeHtml(c.finding)).join('; ') + '</div>' : ''}
         ${(j.mrs || []).length ? renderMRBlocks(j.mrs) : '<p class="small" style="margin-top:8px;">No MRF on this job.</p>'}
+        ${(j.client_materials || []).length ? renderClientMatBlock(j.job_id, j.client_materials) : ''}
       </div>`;
     }).join('') : `<div class="empty"><div class="ic">✅</div><p>${onlyAction ? 'Nothing waiting on materials.' : 'No open jobs.'}</p></div>`}`;
 }
