@@ -33,14 +33,15 @@ const BoardsData = {
   async rpc(fn, args) { const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
 };
 
-function _bdCanInspect() { return (State.me && State.me.role === 'materials') || pmesCan('supervisor'); }
+// Boards are inspected by QA (Rommel 2026-10-19); Receiving only counts them in.
+function _bdCanInspect() { return (State.me && State.me.role === 'qa') || pmesCan('supervisor'); }
 function _bdCanRun() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
 // The materials checker may RUN the optimizer to see whether what arrived is enough (Rommel 2026-10-19), and report it
 // to office staff; saving a plan and requesting extra stay with office staff and supervisors.
 function _bdCanAnalyse() { return _bdCanRun() || (State.me && State.me.role === 'materials'); }
 function _bdGroups(job) { return ((job.mother_jo && job.mother_jo.boards) || []).map((g) => ({ g, key: PmesOptimizer.groupKey(g), label: PmesOptimizer.groupLabel(g) })); }
 
-async function renderBoardsCards(job, el) {
+async function renderBoardsCards(job, el, part) {
   if (!job.mother_jo || !(job.mother_jo.boards || []).length) { el.innerHTML = ''; return; }
   let boards = [], plans = [], reqs = [];
   try { [boards, plans, reqs] = await Promise.all([BoardsData.boards(job.id), BoardsData.plans(job.id), BoardsData.requests(job.id)]); }
@@ -90,17 +91,17 @@ async function renderBoardsCards(job, el) {
       ${btns.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' + btns.join('') + '</div>' : ''}</div>`;
   }).join('');
 
-  el.innerHTML = `
-    <div class="card" id="bdInspect"><h2>Boards received — inspection</h2>
-      <p class="small">The materials person inspects every board: mark each defect on the board drawing, or reject the board. The cutting optimization plans around what is recorded here.</p>
-      ${insp}</div>
+  const _inspectHtml = `<div class="card" id="bdInspect"><h2>Boards received — inspection</h2>
+      <p class="small"><strong>QA</strong> inspects every board: mark each defect on the board drawing, or reject the board. The cutting plan (tab 3) works around what is recorded here.</p>
+      ${insp}</div>`;
+  el.innerHTML = (part === 'plan' ? '' : _inspectHtml) + (part === 'inspect' ? '' : `
     <div class="card" id="bdOptimize"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
       ${_bdCanAnalyse() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
       <p class="small" style="margin-top:6px;"><strong>Run by the office staff who review the Job Order</strong> (or a supervisor and above), after the materials person has inspected the boards. Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
       ${run ? _bdRunHtml(run) : ''}
       ${planRows ? `<table class="comp-table" style="margin-top:10px;"><thead><tr><th>Plan</th><th>Status</th><th>Extra boards</th><th>By</th><th></th></tr></thead><tbody>${planRows}</tbody></table>` : '<p class="small">No plan saved yet — the Modcraft layout is used until one is adopted.</p>'}
     </div>
-    ${reqs.length ? `<div class="card"><h2>Extra board requests</h2><p class="small">Only for boards needed on top of the first Material request — when boards that arrived are rejected or defective and the cutting plan comes up short.</p>${reqRows}</div>` : ''}`;
+    ${reqs.length ? `<div class="card"><h2>Extra board requests</h2><p class="small">Only for boards needed on top of the first Material request — when boards that arrived are rejected or defective and the cutting plan comes up short.</p>${reqRows}</div>` : ''}`);
 }
 
 function _bdBoardSvg(b, maxPx) {
@@ -283,8 +284,9 @@ async function saveBoardInspect() {
 /* Overview + Materials page shortcut (Rommel 2026-09-27: inspection and the optimizer were too buried). */
 function goToBoards(jobId, anchor) {
   State.jobScrollTo = anchor || 'bdInspect';
-  if (State.screen === 'jobDetail' && State.currentJobId === jobId && State.jd) { setJobTab('cutting'); return; }
-  goToJob(jobId, 'cutting');
+  const tab = State.jobScrollTo === 'bdInspect' ? 'qa_in' : 'review';
+  if (State.screen === 'jobDetail' && State.currentJobId === jobId && State.jd) { setJobTab(tab); return; }
+  goToJob(jobId, tab);
 }
 async function renderBoardsSummary(job, el) {
   const groups = _bdGroups(job);

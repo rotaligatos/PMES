@@ -456,3 +456,15 @@ longer an active manager stops counting. Setup → Approval delegation. Tested b
    final, remade straight away. The job cannot be **handed off** while a reject is pending or any routed piece
    (remakes included) is not through every process (`pmes_job_handoff_guard`).
 All rules tested by impersonation in rolled-back transactions.
+
+## 2026-10-19 (later) — Receiving and QA are two people; job page follows the flow
+- **Receiving** (role `materials`) verifies only the right item and the quantity: OK / Short / Wrong item.
+  **QA** (role `qa`) inspects quality: Pass, or Damaged (how many, note, photo) — `pmes_qa_inspect('mr'|'client', parent, lines)`,
+  new `qa_*` columns on `adm_mr_lines` and `pmes_client_materials`. QA cannot receive; Receiving cannot inspect; QA cannot
+  inspect what has not been received. **Boards are inspected by QA** (`pmes_board_save`). Materials are complete only when
+  every line is received in full AND passed by QA (damaged quantity does not count) — `pmes_job_material_state`.
+- **Job page tabs follow the flow**, each naming who does it: Overview (a "where this job is" tracker — each step's status,
+  owner and next thing, click to open) · 1 Receiving · 2 QA inspection (materials + boards) · 3 Review & plan (concerns,
+  JO check/approval, cutting plan, extra boards) · 4 Production (processes, output, rejects, labels, pieces) · 5 QA & release
+  (final QA count, packing/hand-off). Old tab names still open the right tab.
+- Materials page: separate counts for Receiving and for QA (lines + boards); QA users land there.

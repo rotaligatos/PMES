@@ -24,7 +24,7 @@ function renderClientMatBlock(jobId, lines) {
   const can = _inCanCheck();
   const head = `<div class="flex-between" style="gap:8px;flex-wrap:wrap;"><strong>Client-supplied materials</strong>
     ${can ? `<button class="btn outline sm" onclick="clientMatAdd('${jobId}')">+ Item arrived that is not listed</button>` : ''}</div>
-    <p class="small" style="margin-top:4px;">What the client said they will bring (from the quotation). Check each item when it arrives.</p>`;
+    <p class="small" style="margin-top:4px;">What the client said they will bring (from the quotation). Receiving checks the item and counts it; QA checks its quality.</p>`;
   if (!lines.length) return `<div class="mr-block">${head}<p class="small">None listed on the quotation.</p></div>`;
   if (!can) return `<div class="mr-block">${head}<table class="comp-table"><thead><tr><th>Item</th><th>Expected</th><th>Received</th><th>Check</th></tr></thead><tbody>
     ${lines.map((l) => `<tr><td><strong>${escapeHtml(l.item)}</strong>${l.source === 'added' ? ' <span class="small">(added on arrival)</span>' : ''}</td><td>${l.qty_expected ?? '—'} ${escapeHtml(l.unit || '')}</td><td>${l.qty_received}</td>
@@ -34,8 +34,8 @@ function renderClientMatBlock(jobId, lines) {
       <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><div><strong>${escapeHtml(l.item)}</strong>${l.source === 'added' ? ' <span class="small">(added on arrival)</span>' : ''}</div>
         <div class="small">Expected ${l.qty_expected ?? '—'} ${escapeHtml(l.unit || '')} ${inCondPill(l.condition)}${l.checked_by ? ' · ' + escapeHtml(l.checked_by) : ''}</div></div>
       <div class="mr-line-inputs">
-        <label class="small">Arrived in good condition<input type="number" min="0" step="any" class="mrQty" value="${l.condition ? l.qty_received : ''}" placeholder="0"></label>
-        <div class="mr-cond">${[['ok', 'OK'], ['short', 'Short'], ['damaged', 'Damaged'], ['wrong_item', 'Wrong item']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${l.condition === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}</div>
+        <label class="small">Correct item received<input type="number" min="0" step="any" class="mrQty" value="${l.condition ? l.qty_received : ''}" placeholder="0"></label>
+        <div class="mr-cond">${[['ok', 'OK'], ['short', 'Short'], ['wrong_item', 'Wrong item']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${l.condition === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}</div>
         <input type="text" class="mrNote" placeholder="Note — what is short, damaged or wrong" value="${escapeHtml(l.note || '')}">
         <div class="mrPhotoWrap" style="${['damaged', 'wrong_item'].includes(l.condition) ? '' : 'display:none;'}">
           <label class="small">Photo (required for damaged or wrong item)<input type="file" accept="image/*" capture="environment" class="mrPhoto"></label>
@@ -118,12 +118,13 @@ async function concernResolve(id) {
 }
 
 /* ---- the whole inbound check as one card + printable form ---- */
-async function renderInboundCards(job, el) {
+async function renderInboundCards(job, el, part) {
   let cm = [], cc = [];
   try { [cm, cc] = await Promise.all([InboundData.client(job.id), InboundData.concerns(job.id)]); }
   catch (e) { el.innerHTML = `<div class="card"><p class="small">Could not load the inbound check: ${escapeHtml(e.message)}</p></div>`; return; }
-  el.innerHTML = renderConcernBlock(job.id, cc) + `<div class="card">${renderClientMatBlock(job.id, cm)}
-    <div style="margin-top:10px;"><button class="btn outline sm" onclick="printInboundForm('${job.id}')">🖨 Print inbound inspection form</button></div></div>`;
+  const recv = `<div class="card">${renderClientMatBlock(job.id, cm)}
+    <div style="margin-top:10px;"><button class="btn outline sm" onclick="printInboundForm('${job.id}')">🖨 Print receiving &amp; inspection form</button></div></div>`;
+  el.innerHTML = part === 'receive' ? recv : part === 'concerns' ? renderConcernBlock(job.id, cc) : renderConcernBlock(job.id, cc) + recv;
 }
 async function printInboundForm(jobId) {
   const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print.', 'error');

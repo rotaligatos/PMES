@@ -3,10 +3,12 @@
    person opens the part they work on: Overview · Materials · Boards & cutting · Production · Parts · Packing.
    Data is loaded once per job; switching sub-tab redraws from it. */
 
+// Rommel 2026-10-19: the tabs follow the flow, in order, each for the person who does that step.
 const JOB_TABS = [
-  ['overview', 'Overview'], ['materials', 'Materials'], ['cutting', 'Boards & cutting'],
-  ['production', 'Production'], ['parts', 'Pieces'], ['packing', 'Packing'],
+  ['overview', 'Overview'], ['receive', '1 Receiving'], ['qa_in', '2 QA inspection'], ['review', '3 Review & plan'],
+  ['production', '4 Production'], ['release', '5 QA & release'],
 ];
+const JOB_TAB_ALIAS = { materials: 'receive', cutting: 'review', parts: 'production', packing: 'release' };
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
@@ -55,14 +57,15 @@ async function renderJobDetail(main) {
   drawJobTab();
 }
 
-function setJobTab(t) { State.jobTab = t; drawJobTab(); }
+function setJobTab(t) { State.jobTab = JOB_TAB_ALIAS[t] || t; drawJobTab(); }
 
 function _jobTabFlag(t) {
-  const d = State.jd, j = d.job, ms = State.jobMaterialState || { state: 'no_mrf' };
-  if (t === 'overview') return ['received', 'checked', 'supervisor_ok', 'returned'].includes(j.jo_review_status || 'received') ? '•' : '';
-  if (t === 'materials') return ms.state === 'complete' || ms.state === 'no_mrf' ? '' : '•';
-  if (t === 'production') return d.outputs.some((o) => o.status === 'entered') ? '•' : '';
-  if (t === 'parts') { const held = d.components.filter((c) => c.hold === 'reject_pending').length; if (held) return held + ' rejected'; const left = d.components.filter((c) => c.status !== 'complete' && c.status !== 'scrapped').length; return d.components.length ? (left ? left + ' left' : '✓') : ''; }
+  const d = State.jd, j = d.job, mrs = State.jobMRs || [];
+  const lines = [].concat(...mrs.map((m) => m.lines || []));
+  if (t === 'receive') { const n = lines.filter((l) => (+l.issued || 0) > (+l.received || 0)).length; return n ? String(n) : ''; }
+  if (t === 'qa_in') { const n = lines.filter((l) => +l.received > 0 && !l.qa_result).length; return n ? String(n) : ''; }
+  if (t === 'review') return ['received', 'checked', 'supervisor_ok', 'returned'].includes(j.jo_review_status || 'received') ? '•' : '';
+  if (t === 'production') { const held = d.components.filter((c) => c.hold === 'reject_pending').length; if (held) return held + ' rejected'; return d.outputs.some((o) => o.status === 'entered') ? '•' : ''; }
   return '';
 }
 
@@ -76,14 +79,13 @@ function drawJobTab() {
   }).join('');
   const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady, done } = d;
   const progLine = (s) => components.length ? pieceProgressLine(s, components, job, done) : _outputLine(s, components, outputs, job);
-  const t = State.jobTab;
+  const t = JOB_TAB_ALIAS[State.jobTab] || State.jobTab; State.jobTab = t;
 
   if (t === 'overview') {
     const done = stages.filter((s) => s.status === 'complete').length;
     body.innerHTML = `
       <div id="jdConcernFlag"></div>
-      ${renderJoReviewCard(job, joReviews)}
-      ${(job.mother_jo && (job.mother_jo.boards || []).length) ? '<div id="jdBoardsSummary"></div>' : ''}
+      <div id="jdFlow"><div class="card"><p class="small">Loading…</p></div></div>
       ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
         <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Pieces done</th></tr></thead><tbody>
         ${stages.map((s) => { const st = State.stageTypes.find((x) => x.code === s.stage_code);
@@ -91,16 +93,16 @@ function drawJobTab() {
         </tbody></table>
         ${joApproved(job) ? '<button class="btn outline sm" style="margin-top:8px;" onclick="setJobTab(\'production\')">Go to Production →</button>' : ''}</div>` : ''}
       <div class="card"><h2>Job notes</h2><p class="small">${job.notes ? escapeHtml(job.notes) : 'No notes.'}</p></div>`;
-    if (document.getElementById('jdBoardsSummary')) renderBoardsSummary(job, document.getElementById('jdBoardsSummary'));
+    renderJobFlow(job, document.getElementById('jdFlow'));
     InboundData.concerns(job.id).then((cc) => { const o = cc.filter((c) => c.status === 'open'); const el = document.getElementById('jdConcernFlag'); if (el && o.length) el.innerHTML = `<div class="callout blocked" style="margin-bottom:10px;"><strong>Material concern open</strong> — ${o.map((c) => escapeHtml(c.finding)).join('; ')} <button class="btn outline sm" onclick="setJobTab('materials')">Open materials</button></div>`; }).catch(() => {});
   }
 
-  else if (t === 'materials') {
+  else if (t === 'receive') {
     // One place for this job's materials: the MRF from KEYSTONE when there is one; the hand-kept list
     // only for jobs made by hand (no MRF) — showing both repeated the same materials twice.
     const mrs = State.jobMRs || [];
     body.innerHTML = mrs.length ? `<div class="card"><h2>Material requests (MRF)</h2>
-        <p class="small">What KEYSTONE authorized for this job, what the warehouse processed, and what arrived. The materials person confirms receipt here or on the Materials tab.</p>
+        <p class="small"><strong>Material Receiving</strong> checks that each item is the right one and counts how many arrived. Quality is checked next, by QA (tab 2).</p>
         ${renderMRBlocks(mrs)}</div><div id="jdInbound"></div>`
       : `<div id="jdInbound"></div><div class="card"><div class="flex-between"><h2 class="mb-0">Materials required &amp; received</h2>
           ${materialsReady ? '<span class="badge green">Ready for cutting</span>' : (materials.length ? '<span class="badge amber">Awaiting materials</span>' : '<span class="badge gray">Not specified</span>')}</div>
@@ -116,16 +118,25 @@ function drawJobTab() {
             <button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button></div>`;
         }).join('') : '<p class="small" style="margin-top:8px;">No materials specified yet for this job.</p>'}
         <button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button></div>`;
-    if (document.getElementById('jdInbound')) renderInboundCards(job, document.getElementById('jdInbound'));
+    if (document.getElementById('jdInbound')) renderInboundCards(job, document.getElementById('jdInbound'), 'receive');
   }
 
-  else if (t === 'cutting') {
+  else if (t === 'qa_in') {
+    body.innerHTML = '<div id="jdQa"><div class="card"><p class="small">Loading…</p></div></div><div id="boardsBlock"></div>';
+    InboundData.client(job.id).catch(() => []).then((cm) => { const el = document.getElementById('jdQa'); if (el) el.innerHTML = renderQaInspect(job, State.jobMRs || [], cm); });
+    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'), 'inspect').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const e = a && document.getElementById(a); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  }
+
+  else if (t === 'review') {
     const cutStages = stages.filter((s) => ['CUT', 'SCUT'].includes(s.stage_code));
     body.innerHTML = `
       ${cutStages.length && components.length && joApproved(job) ? `<div class="card"><h2>Print for the saw</h2><div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${cutStages.map((s) => `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')">Process JO — ${s.stage_code} (${componentsForStage(components, s.stage_code, job).length})</button>`).join('')}</div></div>` : ''}
+      <div id="jdConcerns"></div>
+      ${renderJoReviewCard(job, joReviews)}
       <div id="boardsBlock"><div class="card"><p class="small">Loading boards…</p></div></div>`;
-    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock')).then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const el = a && document.getElementById(a); if (el) el.scrollIntoView({ block: 'start' }); });
+    renderInboundCards(job, document.getElementById('jdConcerns'), 'concerns');
+    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'), 'plan').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const el = a && document.getElementById(a); if (el) el.scrollIntoView({ block: 'start' }); });
     else document.getElementById('boardsBlock').innerHTML = '<div class="card"><p class="small">No cutting layout on this job — it did not come from a Modcraft cutting list.</p></div>';
   }
 
@@ -154,7 +165,9 @@ function drawJobTab() {
               ${components.length && joApproved(job) ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
               ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
             </div></div>`; }).join('')}</div>` : ''}
-      ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}`;
+      ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}
+      ${components.length ? '<div id="jdRejects"></div>' + (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>' : ''}`;
+    if (components.length) renderRejectsCard(job, document.getElementById('jdRejects'));
   }
 
   else if (t === 'parts' && components.length) {
@@ -169,10 +182,16 @@ function drawJobTab() {
         : `<p class="small" style="margin-top:8px;">${job.mother_jo ? 'No parts yet.' : !canCut ? 'Parts are created during cutting optimization — once the job is active and its materials are ready.' : !stages.length ? 'Assign a route before generating parts.' : 'No parts yet. Tap “+ Generate”.'}</p>`}</div>`;
   }
 
-  else if (t === 'packing') {
+  else if (t === 'release') {
     body.innerHTML = components.length ? '<div class="card"><h2>Packing &amp; hand-off</h2><div id="packingBlock">Loading…</div></div>'
       : '<div class="card"><p class="small">Packing starts once the job has parts.</p></div>';
     if (components.length) renderPackingBlock(job, components);
+    if (components.length) {
+      const st = pieceStats('QC', components, job, done);
+      body.insertAdjacentHTML('afterbegin', `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Final QA</h2><span class="small"><strong>${st.done}</strong> / ${st.planned} pieces passed QA</span></div>
+        <p class="small" style="margin-top:6px;"><strong>QA</strong> passes each piece (tick QC) or rejects it — a QA reject is remade straight away. The job can be handed off only when every piece has passed.</p>
+        <button class="btn primary sm" onclick="PieceState.stage='QC';PieceState.notDone=true;setJobTab('production');setTimeout(()=>{const e=document.getElementById('pcBox');if(e)e.scrollIntoView({behavior:'smooth'});},300)">Open pieces waiting for QA</button></div>`);
+    }
   }
 }
 
@@ -426,7 +445,7 @@ function renderMRBlocks(mrs) {
         </tbody></table></div>`;
     }
     return `<div class="mr-block">${head}
-      <p class="small" style="margin-top:8px;">Check every item: enter how many of the <strong>right item</strong> arrived in good condition, then mark it <strong>OK</strong>, <strong>Short</strong> (say what is missing), <strong>Damaged</strong> or <strong>Wrong item</strong> (describe it and take a photo).</p>
+      <p class="small" style="margin-top:8px;">Check every item: count how many of the <strong>right item</strong> arrived, then mark it <strong>OK</strong>, <strong>Short</strong> (say what is missing) or <strong>Wrong item</strong> (say what came instead, take a photo). QA checks quality afterwards.</p>
       ${lines.map((l) => {
         const can = l.issued > 0;
         const cond = l.condition || '';
@@ -434,9 +453,9 @@ function renderMRBlocks(mrs) {
           <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><div>${itemCell(l)}</div>
             <div class="small">Requested ${l.qty} · Processed ${l.issued} ${escapeHtml(l.unit || '')} ${condPill(l)}</div></div>
           ${can ? `<div class="mr-line-inputs">
-            <label class="small">Arrived in good condition<input type="number" min="0" max="${l.issued}" step="any" class="mrQty" value="${l.received || ''}" placeholder="0" oninput="mrQtyChanged(this)"></label>
+            <label class="small">Correct item received<input type="number" min="0" max="${l.issued}" step="any" class="mrQty" value="${l.received || ''}" placeholder="0" oninput="mrQtyChanged(this)"></label>
             <div class="mr-cond" role="radiogroup">
-              ${[['ok', 'OK'], ['short', 'Short'], ['damaged', 'Damaged'], ['wrong_item', 'Wrong item']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${cond === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}
+              ${[['ok', 'OK'], ['short', 'Short'], ['wrong_item', 'Wrong item']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${cond === v ? 'on ' + v : ''}" data-v="${v}" onclick="mrSetCond(this,'${v}')">${t}</button>`).join('')}
             </div>
             <input type="text" class="mrNote" placeholder="Note — what is short, damaged, or what arrived instead" value="${escapeHtml(l.note || '')}">
             <div class="mrPhotoWrap" style="${['damaged', 'wrong_item'].includes(cond) ? '' : 'display:none;'}">

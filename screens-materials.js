@@ -11,7 +11,7 @@ async function renderMaterials(main) {
   try { onlyAction = localStorage.getItem('pmes_mat_all') !== '1'; } catch (e) {}
   main.innerHTML = `
     <div class="flex-between" style="margin-bottom:10px;gap:8px;flex-wrap:wrap;">
-      <p class="page-sub" style="margin:0;">Check every inbound material — from the warehouse (MRF) and from the client — inspect boards, report concerns to office staff.</p>
+      <p class="page-sub" style="margin:0;"><strong>Receiving</strong> checks the item and quantity of everything that arrives (warehouse MRF and client-supplied). <strong>QA</strong> then inspects quality and boards. Concerns go to office staff.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label class="small" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="matOnly" ${onlyAction ? 'checked' : ''}> Needs action only</label>
         <select id="matCo" style="width:auto;min-width:160px;"><option value="">All plants</option><option value="MSSI">MSSI</option><option value="WCLI">WCLI</option><option value="CWLI">CWLI</option></select>
@@ -34,8 +34,9 @@ async function drawMaterials() {
   const toReceive = (j) => (j.mrs || []).filter((m) => ['partially_issued', 'issued', 'partially_received'].includes(m.status)).length;
   const toInspect = (j) => Math.max(0, (j.boards_planned || 0) - (j.boards_inspected || 0));
   const clientOpen = (j) => (j.client_materials || []).filter((l) => !l.condition).length;
-  const needs = (j) => toReceive(j) > 0 || toInspect(j) > 0 || (j.board_requests_open || 0) > 0 || clientOpen(j) > 0 || (j.concerns || []).length > 0;
-  const tot = { recv: jobs.reduce((n, j) => n + toReceive(j), 0), insp: jobs.reduce((n, j) => n + toInspect(j), 0),
+  const qaOpen = (j) => +j.qa_to_inspect || 0;
+  const needs = (j) => toReceive(j) > 0 || toInspect(j) > 0 || qaOpen(j) > 0 || (j.board_requests_open || 0) > 0 || clientOpen(j) > 0 || (j.concerns || []).length > 0;
+  const tot = { recv: jobs.reduce((n, j) => n + toReceive(j), 0), insp: jobs.reduce((n, j) => n + toInspect(j), 0), qa: jobs.reduce((n, j) => n + qaOpen(j), 0),
     req: jobs.reduce((n, j) => n + (j.board_requests_open || 0), 0),
     wait: jobs.reduce((n, j) => n + (j.mrs || []).filter((m) => m.status === 'authorized').length, 0) };
   const shown = jobs.filter((j) => !onlyAction || needs(j));
@@ -44,7 +45,8 @@ async function drawMaterials() {
     <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
       <div class="stat-box" style="${tot.recv ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.recv}</div><div class="lbl">MRFs to receive</div><div class="small">Warehouse processed — confirm what arrived</div></div>
       <div class="stat-box"><div class="num">${tot.wait}</div><div class="lbl">Waiting for the warehouse</div><div class="small">Authorized, not yet processed</div></div>
-      <div class="stat-box" style="${tot.insp ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.insp}</div><div class="lbl">Boards to inspect</div><div class="small">Planned boards not yet inspected</div></div>
+      <div class="stat-box" style="${tot.qa ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.qa}</div><div class="lbl">Lines for QA to inspect</div><div class="small">Received — quality not checked yet (QA)</div></div>
+      <div class="stat-box" style="${tot.insp ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.insp}</div><div class="lbl">Boards to inspect</div><div class="small">Planned boards not yet inspected (QA)</div></div>
       <div class="stat-box"><div class="num">${tot.req}</div><div class="lbl">Extra-board requests open</div><div class="small">Supervisor / manager / KEYSTONE</div></div>
     </div>
     ${shown.length ? shown.map((j) => {
@@ -55,6 +57,7 @@ async function drawMaterials() {
           <div><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)} <span class="badge ${m[0]}">${m[1]}</span>${(j.concerns || []).length ? ' <span class="badge red">⚠ Material concern</span>' : ''}${clientOpen(j) ? ' <span class="badge amber">' + clientOpen(j) + ' client item(s) to check</span>' : ''}
             <div class="small">${escapeHtml(j.client || '—')}${j.project ? ' — ' + escapeHtml(j.project) : ''}${j.serial ? ' · ' + escapeHtml(j.serial) : ''} · ${escapeHtml(j.company || '')}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${qaOpen(j) ? `<button class="btn primary sm" onclick="goToJob('${j.job_id}','qa_in')">QA inspection (${qaOpen(j)})</button>` : ''}
             ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button>${_bdCanRun() ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}` : ''}
             ${j.board_requests_open ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">${j.board_requests_open} extra-board request(s)</button>` : ''}
             <button class="btn outline sm" onclick="printInboundForm('${j.job_id}')">🖨 Inspection form</button>

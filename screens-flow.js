@@ -1,0 +1,114 @@
+/* ------------------------- Job flow + QA inspection -------------------------
+   Rommel 2026-10-19: acceptance is two people — Material Receiving verifies only the right item and
+   the quantity; QA inspects quality (damage, board defects). The job page now follows the flow in
+   order, each step saying who does it:
+     Overview (where the job is) · 1 Receiving · 2 QA inspection · 3 Review & plan · 4 Production · 5 QA & release
+   Database: pmes_qa_inspect (MRF lines + client items), pmes_board_save (QA), pmes_job_material_state
+   (complete = received in full AND passed by QA). */
+
+function _qaCan() { return (State.me && State.me.role === 'qa') || pmesCan('supervisor'); }
+
+/* ---- QA inspection of received materials ---- */
+function renderQaInspect(job, mrs, client) {
+  const lines = [];
+  (mrs || []).forEach((m) => (m.lines || []).forEach((l) => lines.push({ kind: 'mr', parent: m.id, ref: m.mr_no, id: l.id, item: l.item, area: l.area, unit: l.unit, received: +l.received || 0,
+    res: l.qa_result, dq: +l.qa_damaged_qty || 0, note: l.qa_note, photo: l.qa_photo, by: l.qa_by, at: l.qa_at })));
+  (client || []).forEach((l) => lines.push({ kind: 'client', parent: job.id, ref: 'Client-supplied', id: l.id, item: l.item, unit: l.unit, received: +l.qty_received || 0,
+    res: l.qa_result, dq: +l.qa_damaged_qty || 0, note: l.qa_note, photo: l.qa_photo, by: l.qa_by, at: l.qa_at }));
+  const can = _qaCan(), rec = lines.filter((l) => l.received > 0), waiting = lines.filter((l) => !l.received);
+  const pill = (l) => !l.res ? '<span class="badge amber">To inspect</span>' : l.res === 'pass' ? '<span class="badge green">Passed</span>' : '<span class="badge red">' + l.dq + ' damaged</span>';
+  return `<div class="card" id="qaInspect"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Material quality — QA</h2>
+      <span class="small">${rec.filter((l) => l.res).length} of ${rec.length} received line(s) inspected${waiting.length ? ' · ' + waiting.length + ' not received yet' : ''}</span></div>
+    <p class="small" style="margin-top:6px;">Receiving has confirmed the item and quantity. QA checks the quality of what arrived: <strong>Pass</strong>, or <strong>Damaged</strong> with how many, a note and a photo. Damaged pieces do not count towards the job.</p>
+    ${rec.length ? rec.map((l) => can ? `<div class="mr-line qa-line" data-kind="${l.kind}" data-parent="${l.parent}" data-line="${l.id}" data-rec="${l.received}" ${l.res ? 'data-res="' + l.res + '"' : ''}>
+        <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><div><strong>${escapeHtml(l.item)}</strong>${l.area ? '<br><span class="small">' + escapeHtml(l.area) + '</span>' : ''}<br><span class="small">${escapeHtml(l.ref || '')}</span></div>
+          <div class="small">Received ${l.received} ${escapeHtml(l.unit || '')} ${pill(l)}${l.by ? ' · ' + escapeHtml(l.by) : ''}</div></div>
+        <div class="mr-line-inputs">
+          <div class="mr-cond">${[['pass', 'Pass'], ['damaged', 'Damaged']].map(([v, t]) => `<button type="button" class="mr-cond-btn ${l.res === v ? 'on ' + (v === 'pass' ? 'ok' : 'damaged') : ''}" data-v="${v}" onclick="qaSetRes(this,'${v}')">${t}</button>`).join('')}</div>
+          <label class="small qaDmg" style="${l.res === 'damaged' ? '' : 'display:none;'}">How many damaged<input type="number" min="1" max="${l.received}" step="any" class="qaQty" value="${l.dq || ''}"></label>
+          <input type="text" class="qaNote" placeholder="Note — what is wrong (required for damaged)" value="${escapeHtml(l.note || '')}">
+          <div class="qaPhotoWrap" style="${l.res === 'damaged' ? '' : 'display:none;'}"><label class="small">Photo of the damage (required)<input type="file" accept="image/*" capture="environment" class="qaPhoto"></label>
+            ${l.photo ? `<button class="btn outline sm" onclick="viewReceiptPhoto('${encodeURIComponent(l.photo)}')">View saved photo</button>` : ''}</div>
+        </div></div>`
+      : `<div class="mr-line"><div class="flex-between"><div><strong>${escapeHtml(l.item)}</strong> <span class="small">${escapeHtml(l.ref || '')}</span></div><div class="small">Received ${l.received} ${pill(l)}</div></div>${l.note ? '<div class="small">' + escapeHtml(l.note) + '</div>' : ''}</div>`).join('')
+      : '<p class="small">Nothing received yet — Receiving confirms the item and quantity first.</p>'}
+    ${can && rec.length ? `<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px;"><button class="btn outline sm" onclick="qaAllPass()">All pass</button><button class="btn primary sm" onclick="qaSubmit('${job.id}')">Save QA inspection</button></div>` : ''}
+  </div>`;
+}
+function qaSetRes(btn, v) {
+  const row = btn.closest('.qa-line'); row.dataset.res = v;
+  row.querySelectorAll('.mr-cond-btn').forEach((b) => { b.className = 'mr-cond-btn' + (b.dataset.v === v ? ' on ' + (v === 'pass' ? 'ok' : 'damaged') : ''); });
+  row.querySelector('.qaDmg').style.display = v === 'damaged' ? '' : 'none';
+  row.querySelector('.qaPhotoWrap').style.display = v === 'damaged' ? '' : 'none';
+}
+function qaAllPass() { document.querySelectorAll('.qa-line').forEach((row) => { if (!row.dataset.res) qaSetRes(row.querySelector('.mr-cond-btn[data-v="pass"]'), 'pass'); }); }
+async function qaSubmit(jobId) {
+  const groups = {};
+  for (const row of document.querySelectorAll('.qa-line')) {
+    const res = row.dataset.res; if (!res) continue;
+    const item = row.querySelector('strong').textContent, note = row.querySelector('.qaNote').value.trim();
+    const line = { id: row.dataset.line, result: res, note: note || null };
+    if (res === 'damaged') {
+      const q = Number(row.querySelector('.qaQty').value); if (!(q > 0)) return toast('How many of ' + item + ' are damaged?', 'error');
+      if (!note) return toast('Describe the damage on ' + item + '.', 'error');
+      line.damaged_qty = q;
+      const f = row.querySelector('.qaPhoto').files[0];
+      if (f) {
+        const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const path = 'qa/' + row.dataset.parent + '/' + row.dataset.line + '/' + Date.now() + '.' + ext;
+        const { error } = await sb.storage.from('pmes-receipts').upload(path, f, { contentType: f.type || 'image/jpeg', upsert: false });
+        if (error) return toast('Photo upload failed for ' + item + ': ' + error.message, 'error');
+        line.photo = path;
+      } else if (!row.querySelector('.qaPhotoWrap button')) return toast('Take a photo of the damage on ' + item + '.', 'error');
+    }
+    const k = row.dataset.kind + '|' + row.dataset.parent; (groups[k] = groups[k] || []).push(line);
+  }
+  const keys = Object.keys(groups); if (!keys.length) return toast('Mark at least one line Pass or Damaged.', 'error');
+  try {
+    for (const k of keys) { const [kind, parent] = k.split('|'); await sb.rpc('pmes_qa_inspect', { p_kind: kind, p_parent: parent, p_lines: groups[k] }).then(({ error }) => { if (error) throw error; }); }
+    toast('QA inspection saved.', 'success'); render();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---- Overview: where the job is in the flow ---- */
+async function renderJobFlow(job, el) {
+  const d = State.jd, mrs = State.jobMRs || [];
+  let client = [], concerns = [], boards = [], plans = [], rejects = [];
+  try {
+    [client, concerns, boards, plans, rejects] = await Promise.all([
+      InboundData.client(job.id).catch(() => []), InboundData.concerns(job.id).catch(() => []),
+      (typeof BoardsData !== 'undefined' ? BoardsData.boards(job.id) : Promise.resolve([])).catch(() => []),
+      (typeof BoardsData !== 'undefined' ? BoardsData.plans(job.id) : Promise.resolve([])).catch(() => []),
+      (typeof RejectData !== 'undefined' ? RejectData.list(job.id) : Promise.resolve([])).catch(() => [])]);
+  } catch (e) {}
+  const mrLines = [].concat(...mrs.map((m) => m.lines || []));
+  const toRecv = mrLines.filter((l) => (+l.received || 0) < (+l.qty || 0)).length + client.filter((c) => !c.condition).length;
+  const recvd = mrLines.filter((l) => +l.received > 0).length + client.filter((c) => +c.qty_received > 0).length;
+  const toQa = mrLines.filter((l) => +l.received > 0 && !l.qa_result).length + client.filter((c) => +c.qty_received > 0 && !c.qa_result).length;
+  const damaged = mrLines.filter((l) => l.qa_result === 'damaged').length + client.filter((c) => c.qa_result === 'damaged').length;
+  const planned = ((job.mother_jo && job.mother_jo.boards) || []).reduce((n, b) => n + (b.boardsNeeded || 0), 0);
+  const openC = concerns.filter((c) => c.status === 'open').length, adopted = plans.find((p) => p.status === 'adopted');
+  const rv = job.jo_review_status || 'received', approved = rv === 'approved';
+  const comps = d.components || [], fin = comps.filter((c) => c.status === 'complete').length;
+  const pendRj = rejects.filter((r) => r.status === 'pending').length;
+  const qc = typeof pieceStats === 'function' ? pieceStats('QC', comps, job, d.done || []) : { planned: 0, done: 0 };
+  const hasMat = mrLines.length + client.length > 0;
+  const steps = [
+    { tab: 'receive', n: 1, t: 'Receiving', who: 'Material Receiving', st: !hasMat ? 'na' : toRecv ? (recvd ? 'now' : 'wait') : 'done',
+      note: !hasMat ? 'No MRF or client materials' : toRecv ? toRecv + ' line(s) still to receive' : 'Everything received' },
+    { tab: 'qa_in', n: 2, t: 'QA inspection', who: 'QA', st: !hasMat && !planned ? 'na' : (toQa || boards.length < planned) ? (recvd || boards.length ? 'now' : 'wait') : 'done',
+      note: [toQa ? toQa + ' material line(s) to inspect' : '', planned ? boards.length + ' of ' + planned + ' boards inspected' : '', damaged ? damaged + ' line(s) damaged' : ''].filter(Boolean).join(' · ') || 'Inspected' },
+    { tab: 'review', n: 3, t: 'Review & plan', who: 'Office staff → Supervisor', st: approved ? 'done' : openC ? 'block' : (rv === 'checked' || rv === 'supervisor_ok') ? 'now' : 'wait',
+      note: (openC ? openC + ' material concern(s) open · ' : '') + (adopted ? 'cut plan v' + adopted.version + ' adopted · ' : '') + ({ received: 'JO not checked yet', checked: 'checked — waiting for supervisor', supervisor_ok: 'waiting for manager', approved: 'JO approved', returned: 'JO returned' }[rv] || rv) },
+    { tab: 'production', n: 4, t: 'Production', who: 'Supervisor assigns operators · Operators', st: !approved ? 'wait' : comps.length && fin === comps.length ? 'done' : pendRj ? 'block' : 'now',
+      note: comps.length ? fin + ' of ' + comps.length + ' pieces through every process' + (pendRj ? ' · ' + pendRj + ' reject(s) for the supervisor' : '') : 'No pieces' },
+    { tab: 'release', n: 5, t: 'QA & release', who: 'QA', st: job.status === 'handed_off' ? 'done' : qc.planned && qc.done === qc.planned && !pendRj ? 'now' : 'wait',
+      note: job.status === 'handed_off' ? 'Handed off' : qc.planned ? qc.done + ' of ' + qc.planned + ' pieces passed QA' : 'No QA step on the route' },
+  ];
+  const col = { done: ['green', '✓ Done'], now: ['amber', 'In progress'], wait: ['gray', 'Waiting'], block: ['red', 'Needs attention'], na: ['gray', 'Not needed'] };
+  el.innerHTML = `<div class="card"><h2>Where this job is</h2>
+    <div class="flow-steps">${steps.map((s) => { const c = col[s.st];
+      return `<button class="flow-step ${s.st}" onclick="setJobTab('${s.tab}')"><span class="flow-n">${s.st === 'done' ? '✓' : s.n}</span>
+        <span class="flow-body"><strong>${s.t}</strong><span class="small">${escapeHtml(s.who)}</span><span class="small">${escapeHtml(s.note)}</span></span>
+        <span class="badge ${c[0]}">${c[1]}</span></button>`; }).join('')}</div></div>`;
+}

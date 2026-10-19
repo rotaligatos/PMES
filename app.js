@@ -740,7 +740,7 @@ async function authGate() {
   document.querySelector('nav.tabbar').style.display = '';
   applyRoleToNav();
   // Each role lands where they work: operators on Scan, the materials person on Materials.
-  const home = me.role === 'operator' ? 'scan' : me.role === 'materials' ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
+  const home = me.role === 'operator' ? 'scan' : (me.role === 'materials' || me.role === 'qa') ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
   State.screen = home;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();
