@@ -112,3 +112,45 @@ async function renderJobFlow(job, el) {
         <span class="flow-body"><strong>${s.t}</strong><span class="small">${escapeHtml(s.who)}</span><span class="small">${escapeHtml(s.note)}</span></span>
         <span class="badge ${c[0]}">${c[1]}</span></button>`; }).join('')}</div></div>`;
 }
+
+/* ---- Production: the supervisor assigns operators to each process JO (Rommel 2026-10-19) ---- */
+async function renderAssignCard(job, el) {
+  let pjos = [], users = [];
+  try {
+    const [a, b] = await Promise.all([sb.from(T('process_jos')).select('*').eq('job_id', job.id).order('sequence_index'), sb.from('pmes_users').select('email,name,role,company,active')]);
+    pjos = a.data || []; users = (b.data || []).filter((u) => u.active && u.role === 'operator');
+  } catch (e) { el.innerHTML = ''; return; }
+  if (!pjos.length) { el.innerHTML = ''; return; }
+  State.assignCtx = { job, pjos, users };
+  const sup = pmesCan('supervisor'), sched = job.schedule_status === 'approved';
+  el.innerHTML = `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Operators by process</h2>
+      <span class="small">${pjos.filter((p) => (p.operators || []).length || p.machine_name).length} of ${pjos.length} assigned</span></div>
+    <p class="small" style="margin-top:6px;">The supervisor assigned to the job enters the machine and operator(s) for each process; the process JO then goes to them.${sched ? '' : ' <strong>The loading schedule must be approved first</strong> (Schedule page).'}</p>
+    <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process JO</th><th>Plan</th><th>Machine</th><th>Operator(s)</th><th>Status</th><th></th></tr></thead><tbody>
+    ${pjos.map((p) => `<tr><td><strong>${escapeHtml(p.pjo_no || p.stage_code)}</strong><div class="small">${escapeHtml(p.stage_code)} · ${p.planned_pieces || 0} pieces</div></td>
+      <td class="small">${p.planned_start ? fmtDate(p.planned_start) + ' → ' + fmtDate(p.planned_end) : '—'}</td>
+      <td>${escapeHtml(p.machine_name || '—')}</td><td>${(p.operators || []).length ? escapeHtml(p.operators.join(', ')) : '<span class="small">Not assigned</span>'}</td>
+      <td>${badgeForStageStatus(p.status === 'handed_out' ? 'queued' : p.status === 'done' ? 'complete' : p.status === 'in_progress' ? 'in_progress' : 'not_started')}</td>
+      <td style="white-space:nowrap">${sup && p.status !== 'done' ? `<button class="btn ${(p.operators || []).length ? 'outline' : 'primary'} sm" ${sched ? '' : 'disabled title="Approve the loading schedule first"'} onclick="assignOpen('${p.id}')">${(p.operators || []).length ? 'Change' : 'Assign'}</button>` : ''}
+        <button class="btn outline sm" onclick="printProcessJO('${job.id}','${p.stage_code}')">Print</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+function assignOpen(pjoId) {
+  const c = State.assignCtx, p = c.pjos.find((x) => x.id === pjoId); if (!p) return;
+  const ms = (State.jd && State.jd.machines) || [];
+  openSheet(`<div class="sheet-title">Assign ${escapeHtml(p.pjo_no || p.stage_code)}</div>
+    <label class="field-label">Machine</label>
+    <select id="asMachine"><option value="">— none —</option>${ms.map((m) => `<option value="${m.id}" ${m.id === p.machine_id ? 'selected' : ''}>${escapeHtml(m.name || m.code || m.id)}</option>`).join('')}</select>
+    <label class="field-label">Operator(s)</label>
+    <div>${c.users.map((u) => `<label class="small" style="display:inline-flex;gap:4px;margin:2px 10px 2px 0;"><input type="checkbox" class="asOp" value="${escapeHtml(u.name || u.email)}" ${(p.operators || []).includes(u.name || u.email) ? 'checked' : ''}> ${escapeHtml(u.name || u.email)}</label>`).join('') || '<span class="small">No operator accounts yet — type names below.</span>'}</div>
+    <input type="text" id="asOther" placeholder="Other operators (names, comma-separated)" value="${escapeHtml((p.operators || []).filter((n) => !c.users.some((u) => (u.name || u.email) === n)).join(', '))}">
+    <input type="text" id="asNote" placeholder="Note (optional)" value="${escapeHtml(p.handout_note || '')}" style="margin-top:8px;">
+    <button class="btn primary block" style="margin-top:12px;" onclick="assignSave('${p.id}')">Assign and hand out</button>`);
+}
+async function assignSave(pjoId) {
+  const ops = [...document.querySelectorAll('.asOp:checked')].map((i) => i.value)
+    .concat((document.getElementById('asOther').value || '').split(',').map((x) => x.trim()).filter(Boolean));
+  const { error } = await sb.rpc('pmes_pjo_handout', { p_pjo: pjoId, p_machine: document.getElementById('asMachine').value || null, p_operators: ops, p_note: document.getElementById('asNote').value || null });
+  if (error) return toast(error.message, 'error');
+  closeSheet(); toast('Assigned — the process JO is with the operator(s).', 'success'); render();
+}

@@ -25,6 +25,22 @@ async function renderMaterials(main) {
   await drawMaterials();
 }
 
+// Rommel 2026-10-19: each person sees their own lane — Receiving (item + qty), QA (quality, boards),
+// Office staff (optimizer, extra boards, concerns). Supervisors and above see all three.
+function _matLanes(j, insp, recvN, qaN) {
+  const role = (State.me && State.me.role) || '', all = pmesCan('supervisor');
+  const lane = (title, body) => body ? '<div class="mat-lane"><div class="mat-lane-t">' + title + '</div><div class="mat-lane-b">' + body + '</div></div>' : '';
+  const recv = (all || role === 'materials') ? lane('Receiving', recvN ? '<button class="btn primary sm" onclick="goToJob(\'' + j.job_id + '\',\'receive\')">Receive (' + recvN + ')</button>' : '<span class="small">✓ nothing to receive</span>') : '';
+  const qa = (all || role === 'qa') ? lane('QA inspection', (qaN ? '<button class="btn primary sm" onclick="goToJob(\'' + j.job_id + '\',\'qa_in\')">Inspect materials (' + qaN + ')</button>' : '')
+    + (j.boards_planned ? '<button class="btn ' + (insp ? 'primary' : 'outline') + ' sm" onclick="goToBoards(\'' + j.job_id + '\',\'bdInspect\')">Boards ' + j.boards_inspected + '/' + j.boards_planned + (j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : '') + '</button>' : '')
+    || '<span class="small">✓ nothing to inspect</span>') : '';
+  const off = (all || role === 'staff') ? lane('Office staff', (j.boards_planned ? '<button class="btn outline sm" onclick="goToBoards(\'' + j.job_id + '\',\'bdOptimize\')">Cutting plan' + (j.board_requests_open ? ' · ' + j.board_requests_open + ' extra-board request(s)' : '') + '</button>' : '')
+    + ((j.concerns || []).length ? '<button class="btn danger sm" onclick="goToJob(\'' + j.job_id + '\',\'review\')">' + j.concerns.length + ' concern(s)</button>' : '')) : '';
+  return '<div class="mat-lanes">' + recv + qa + off
+    + '<div class="mat-lane"><div class="mat-lane-t">&nbsp;</div><div class="mat-lane-b">'
+    + (typeof _inCanRaise === 'function' && _inCanRaise() ? '<button class="btn outline sm" onclick="concernRaise(\'' + j.job_id + '\')">Report concern…</button>' : '')
+    + '<button class="btn outline sm" onclick="printInboundForm(\'' + j.job_id + '\')">🖨 Form</button><button class="btn outline sm" onclick="goToJob(\'' + j.job_id + '\',\'overview\')">Open job</button></div></div></div>';
+}
 async function drawMaterials() {
   const box = document.getElementById('matBody'); if (!box) return;
   const co = document.getElementById('matCo').value, onlyAction = document.getElementById('matOnly').checked;
@@ -56,14 +72,7 @@ async function drawMaterials() {
         <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
           <div><strong class="mono">${escapeHtml(j.job_code)}</strong> ${testTag(j)} <span class="badge ${m[0]}">${m[1]}</span>${(j.concerns || []).length ? ' <span class="badge red">⚠ Material concern</span>' : ''}${clientOpen(j) ? ' <span class="badge amber">' + clientOpen(j) + ' client item(s) to check</span>' : ''}
             <div class="small">${escapeHtml(j.client || '—')}${j.project ? ' — ' + escapeHtml(j.project) : ''}${j.serial ? ' · ' + escapeHtml(j.serial) : ''} · ${escapeHtml(j.company || '')}</div></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            ${qaOpen(j) ? `<button class="btn primary sm" onclick="goToJob('${j.job_id}','qa_in')">QA inspection (${qaOpen(j)})</button>` : ''}
-            ${j.boards_planned ? `<button class="btn ${insp ? 'primary' : 'outline'} sm" onclick="goToBoards('${j.job_id}','bdInspect')">Inspect boards (${j.boards_inspected}/${j.boards_planned})${j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : ''}</button>${_bdCanRun() ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">Cutting optimizer</button>` : ''}` : ''}
-            ${j.board_requests_open ? `<button class="btn outline sm" onclick="goToBoards('${j.job_id}','bdOptimize')">${j.board_requests_open} extra-board request(s)</button>` : ''}
-            <button class="btn outline sm" onclick="printInboundForm('${j.job_id}')">🖨 Inspection form</button>
-            ${_inCanRaise() ? `<button class="btn outline sm" onclick="concernRaise('${j.job_id}')">Report concern…</button>` : ''}
-            <button class="btn outline sm" onclick="goToJob('${j.job_id}','materials')">Open job</button>
-          </div>
+          ${_matLanes(j, insp, toReceive(j) + clientOpen(j), qaOpen(j))}
         </div>
         ${(j.concerns || []).length ? '<div class="callout blocked" style="margin-top:8px;"><strong>Open concern:</strong> ' + j.concerns.map((c) => escapeHtml(c.finding)).join('; ') + '</div>' : ''}
         ${(j.mrs || []).length ? renderMRBlocks(j.mrs) : '<p class="small" style="margin-top:8px;">No MRF on this job.</p>'}

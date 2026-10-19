@@ -82,6 +82,7 @@ async function clientMatSubmit(jobId) {
 const CONCERN_KIND = { not_enough: 'Not enough material', damaged: 'Damaged material', wrong_item: 'Wrong item received', short: 'Short delivery', client_supplied: 'Client-supplied problem', other: 'Other' };
 function renderConcernBlock(jobId, concerns) {
   const open = concerns.filter((c) => c.status === 'open'), closed = concerns.filter((c) => c.status !== 'open');
+  if (!concerns.length) return `<div class="card" style="padding:10px 14px;"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><span class="small"><strong>Material concerns:</strong> none.</span>${_inCanRaise() ? `<button class="btn outline sm" onclick="concernRaise('${jobId}')">Report a material concern…</button>` : ''}</div></div>`;
   const card = (c) => `<div style="border:1px solid ${c.status === 'open' ? 'var(--red,#c0271d)' : 'var(--border)'};border-radius:10px;padding:10px;margin-top:8px;">
     <div class="flex-between"><strong>${escapeHtml(CONCERN_KIND[c.kind] || c.kind)}</strong>${c.status === 'open' ? '<span class="badge red">Open</span>' : '<span class="badge green">Resolved</span>'}</div>
     <div style="margin-top:4px;">${escapeHtml(c.finding)}</div>

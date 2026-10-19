@@ -97,7 +97,7 @@ async function renderBoardsCards(job, el, part) {
   el.innerHTML = (part === 'plan' ? '' : _inspectHtml) + (part === 'inspect' ? '' : `
     <div class="card" id="bdOptimize"><div class="flex-between"><h2 class="mb-0">Cutting optimization</h2>
       ${_bdCanAnalyse() ? `<button class="btn primary sm" onclick="runBoardOptimizer('${job.id}')">Run with the boards received</button>` : ''}</div>
-      <p class="small" style="margin-top:6px;"><strong>Run by the office staff who review the Job Order</strong> (or a supervisor and above), after the materials person has inspected the boards. Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
+      <p class="small" style="margin-top:6px;"><strong>Run by the office staff who review the Job Order</strong> (or a supervisor and above), after QA has inspected the boards (tab 2). The materials checker may also run it to see if what arrived is enough. Same method, machine and kerf as the Modcraft cutting list the quotation was based on — but on the real boards: rejected boards are left out and defects are never cut into. A supervisor adopts the plan the line cuts from; the process JO prints the adopted plan.</p>
       ${run ? _bdRunHtml(run) : ''}
       ${planRows ? `<table class="comp-table" style="margin-top:10px;"><thead><tr><th>Plan</th><th>Status</th><th>Extra boards</th><th>By</th><th></th></tr></thead><tbody>${planRows}</tbody></table>` : '<p class="small">No plan saved yet — the Modcraft layout is used until one is adopted.</p>'}
     </div>

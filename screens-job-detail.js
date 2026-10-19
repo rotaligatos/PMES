@@ -133,8 +133,8 @@ function drawJobTab() {
       ${cutStages.length && components.length && joApproved(job) ? `<div class="card"><h2>Print for the saw</h2><div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${cutStages.map((s) => `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')">Process JO — ${s.stage_code} (${componentsForStage(components, s.stage_code, job).length})</button>`).join('')}</div></div>` : ''}
       <div id="jdConcerns"></div>
-      ${renderJoReviewCard(job, joReviews)}
-      <div id="boardsBlock"><div class="card"><p class="small">Loading boards…</p></div></div>`;
+      <div id="boardsBlock"><div class="card"><p class="small">Loading boards…</p></div></div>
+      ${renderJoReviewCard(job, joReviews)}`;
     renderInboundCards(job, document.getElementById('jdConcerns'), 'concerns');
     if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'), 'plan').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const el = a && document.getElementById(a); if (el) el.scrollIntoView({ block: 'start' }); });
     else document.getElementById('boardsBlock').innerHTML = '<div class="card"><p class="small">No cutting layout on this job — it did not come from a Modcraft cutting list.</p></div>';
@@ -154,7 +154,7 @@ function drawJobTab() {
           ${State.routeMappings.map((r) => `<option value="${r.code}">${escapeHtml(r.label)}</option>`).join('')}</select>
           <button class="btn secondary sm" style="margin-top:10px;" onclick="assignRoute('${job.id}')">Assign route</button>`}
       </div>
-      ${!joApproved(job) ? '<div class="callout info">Nothing can be logged until the Job Order is approved (Overview tab).</div>' : ''}
+      ${!joApproved(job) ? '<div class="callout info">Nothing can be logged until the Job Order is approved (tab 3 Review &amp; plan).</div>' : ''}
       ${stages.length ? `<div class="card"><h2>Processes</h2>
         ${stages.map((s, idx) => { const stageType = State.stageTypes.find((x) => x.code === s.stage_code);
           const cls = s.status === 'complete' ? 'complete' : s.status === 'delayed' ? 'delayed' : (s.status === 'in_progress' || s.status === 'queued') ? 'current' : '';
@@ -165,9 +165,11 @@ function drawJobTab() {
               ${components.length && joApproved(job) ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')" title="Work order for this process: only the pieces that go through it">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}
               ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
             </div></div>`; }).join('')}</div>` : ''}
+      ${stages.length && joApproved(job) ? '<div id="jdAssign"></div>' : ''}
       ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}
       ${components.length ? '<div id="jdRejects"></div>' + (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>' : ''}`;
     if (components.length) renderRejectsCard(job, document.getElementById('jdRejects'));
+    if (document.getElementById('jdAssign')) renderAssignCard(job, document.getElementById('jdAssign'));
   }
 
   else if (t === 'parts' && components.length) {
