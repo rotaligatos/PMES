@@ -86,6 +86,8 @@ function drawJobTab() {
     body.innerHTML = `
       <div id="jdConcernFlag"></div>
       <div id="jdFlow"><div class="card"><p class="small">Loading…</p></div></div>
+      ${job.mother_jo ? `<div class="card" style="padding:10px 14px;"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><span class="small"><strong>Job Order files</strong> — Excel has every section on its own sheet, plus one sheet per process with its pieces. CSV is the parts cut list.</span>
+        <span style="display:flex;gap:6px;"><button class="btn outline sm" onclick="exportJobOrder('${job.id}','xlsx')">Excel</button><button class="btn outline sm" onclick="exportJobOrder('${job.id}','csv')">CSV</button></span></div></div>` : ''}
       ${stages.length ? `<div class="card"><div class="flex-between"><h2 class="mb-0">Progress</h2><span class="small">${done} of ${stages.length} processes complete</span></div>
         <table class="comp-table" style="margin-top:8px;"><thead><tr><th>Process</th><th>Status</th><th>Pieces done</th></tr></thead><tbody>
         ${stages.map((s) => { const st = State.stageTypes.find((x) => x.code === s.stage_code);
