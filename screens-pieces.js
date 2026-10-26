@@ -13,7 +13,7 @@ async function loadPieceDone(jobId) {
 function _doneMap(done) { const m = {}; (done || []).forEach((d) => { m[d.component_id + '|' + d.stage_code] = d; }); return m; }
 function _pieceLabel(c) {
   const s = c.spec || {};
-  return { part: s.part || c.part_code || '', name: s.name || c.component_code || '', size: s.cutL && s.cutW ? s.cutL + '×' + s.cutW : '' };
+  return { part: s.part || c.part_code || '', name: s.name || c.component_code || '', size: s.cutL && s.cutW ? s.cutW + '×' + s.cutL : '' };
 }
 function _pieceRoute(c, job) { return stageSequenceFor(c, job) || []; }
 // Pieces planned at a process and how many are done — the one progress figure used everywhere.

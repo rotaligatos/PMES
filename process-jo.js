@@ -44,7 +44,7 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
     // remakes added in a plan revision are highlighted for traceability (Rommel 2026-10-19)
     r += pc.remake ? `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="#ffd6a8" stroke="#d9480f" stroke-width="${sw * 2.5}"></rect>`
       : `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="${on ? `hsl(${hue},55%,80%)` : '#eeeeee'}" stroke="#5a4a3a" stroke-width="${sw}"></rect>`;
-    const label = (pc.remake ? 'REMAKE ' + (pc.part || '') + ' ' : (pc.ref != null ? 'P' + (pc.ref + 1) + ' ' : '')) + Math.round(pc.h) + '×' + Math.round(pc.w) + (pc.rotated ? ' ⟳' : '');
+    const label = (pc.remake ? 'REMAKE ' + (pc.part || '') + ' ' : (pc.ref != null ? 'P' + (pc.ref + 1) + ' ' : '')) + Math.round(pc.w) + '×' + Math.round(pc.h) + (pc.rotated ? ' ⟳' : '');
     if (pc.w > fs * 0.62 * label.length && pc.h > fs * 1.5)
       r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle" fill="#222">${_pjoE(label)}</text>`;
     else if (pc.ref != null && pc.w > fs * 2.2 && pc.h > fs * 1.5)
@@ -135,7 +135,7 @@ function _pjoEdgeLayout(mjo, parts) {
     tapes[k] = (tapes[k] || 0) + lm;
   });
   return '<div class="edges">' + banded.map((p) => `<div class="edge"><div>${_pjoEdgeDiagram(p)}</div>`
-      + `<div><b>${_pjoE(p.p)}</b> ${_pjoE(p.name)} ×${p.qty}<br>${_pjoE(p.L)}×${_pjoE(p.W)} · <b>${_pjoE(p.ebt)}</b><br>${_pjoE(p.tape || '')}</div></div>`).join('') + '</div>'
+      + `<div><b>${_pjoE(p.p)}</b> ${_pjoE(p.name)} ×${p.qty}<br>${_pjoE(p.W)}×${_pjoE(p.L)} · <b>${_pjoE(p.ebt)}</b><br>${_pjoE(p.tape || '')}</div></div>`).join('') + '</div>'
     + '<p class="muted">Red = banded edge. Top/bottom lines run along the length; the sides along the width.</p>'
     + '<table class="t"><tr><th>Tape</th><th>Length (no wastage)</th></tr>'
     + Object.keys(tapes).map((k) => `<tr><td>${_pjoE(k)}</td><td>${tapes[k].toFixed(2)} m</td></tr>`).join('') + '</table>';
@@ -226,7 +226,8 @@ async function printProcessJO(jobId, stageCode) {
   const attachments = mjo ? await _pjoAttachments(mjo) : [];
 
   const e = _pjoE, sp = (c) => c.spec || {};
-  const size = (a, b) => (a && b ? a + ' × ' + b : '—');
+  // Called as size(L, W); prints W × L (Rommel, 2026-10-26: operators read width first).
+  const size = (a, b) => (a && b ? b + ' × ' + a : '—');
   const cutting = stageCode === 'CUT' || stageCode === 'SCUT';
   const edge = stageCode === 'EBA' || stageCode === 'EBB' || stageCode === 'MEB';
   const hpl = stageCode === 'HPL' || stageCode === 'CURE' || stageCode === 'MHPL';
@@ -242,19 +243,19 @@ async function printProcessJO(jobId, stageCode) {
                 ['Part', (c) => '<b>' + e(sp(c).part || c.part_code) + '</b>'],
                 ['Name', (c) => e(sp(c).name || c.component_code)]];
   if (cutting) cols.push(['Material', (c) => e(sp(c).material || '')], ['Th', (c) => e(sp(c).thickness || '')],
-    ['Cut L × W', (c) => '<b>' + size(sp(c).cutL, sp(c).cutW) + '</b>'],
+    ['Cut W × L', (c) => '<b>' + size(sp(c).cutL, sp(c).cutW) + '</b>'],
     ['Grain', (c) => e(sp(c).grain || '')], ['Special', (c) => '<b>' + e(sp(c).special || '') + '</b>']);
-  else if (edge) cols.push(['Finished L × W', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
+  else if (edge) cols.push(['Finished W × L', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
     ['Edges', (c) => '<b>' + e(sp(c).ebt || '') + '</b>'], ['Tape', (c) => e(sp(c).tape || '') + (sp(c).tapeMm ? ' (' + sp(c).tapeMm + 'mm)' : '')]);
-  else if (groove) cols.push(['Finished L × W', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
+  else if (groove) cols.push(['Finished W × L', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
     ['Material', (c) => e(sp(c).material || '')], ['Grooving', (c) => '<b>' + e(sp(c).grooving || '') + '</b>'],
     ['Grain', (c) => e(sp(c).grain || '')]);
-  else if (svcStage) cols.push(['Finished L × W', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
+  else if (svcStage) cols.push(['Finished W × L', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
     ['Material', (c) => e(sp(c).material || '')], ['Th', (c) => e(sp(c).thickness || '')],
     ['Work', (c) => '<b>' + e(svcText(c) || (stageCode === 'GLU' ? 'glue to its panel' : '')) + '</b>'], ['Grain', (c) => e(sp(c).grain || '')]);
   else if (hpl) cols.push(['Material', (c) => e(sp(c).material || '')], ['Size', (c) => size(sp(c).cutL || sp(c).L, sp(c).cutW || sp(c).W)],
     ['Order', (c) => e(sp(c).hplOrder === 'laminate_first' ? 'whole board, before cutting' : 'after cutting')]);
-  else cols.push(['Finished L × W', (c) => size(sp(c).L, sp(c).W)], ['Material', (c) => e(sp(c).material || '')]);
+  else cols.push(['Finished W × L', (c) => size(sp(c).L, sp(c).W)], ['Material', (c) => e(sp(c).material || '')]);
   // The client's notes and the groove position (e.g. 'groove: 1W … not at ebt side') travel with each piece.
   if (list.some((c) => sp(c).remark)) cols.push(['Remarks', (c) => '<span style="font-size:9.5px">' + e(sp(c).remark || '') + '</span>']);
   // One tick box per working day — a piece is ticked on the day it was actually done.

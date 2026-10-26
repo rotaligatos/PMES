@@ -15,7 +15,7 @@ const RejectData = {
 const RejectState = { lastFit: null };
 function _rjCanVerify() { return pmesCan('supervisor'); }
 function _rjCanPlan() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
-function _rjPiece(c) { const s = c.spec || {}; return [s.part, s.name, s.cutL && s.cutW ? s.cutL + '×' + s.cutW : ''].filter(Boolean).join(' · ') || c.full_barcode_id; }
+function _rjPiece(c) { const s = c.spec || {}; return [s.part, s.name, s.cutL && s.cutW ? s.cutW + '×' + s.cutL : ''].filter(Boolean).join(' · ') || c.full_barcode_id; }
 
 /* ---- report a reject (pieces grid / scan) ---- */
 function pieceReject(componentId, stage, from) {

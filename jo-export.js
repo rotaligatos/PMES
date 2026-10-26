@@ -26,14 +26,14 @@ function _joxHplRows(jo) {
 
 function joExportRows(job, stages, components) {
   const jo = job.mother_jo || {}, sv = jo.services || {}, r = (v) => Math.round((+v || 0) * 100) / 100;
-  const parts = [['Part', 'Area', 'Component', 'Material', 'Colour', 'Th (mm)', 'Finished L', 'Finished W', 'Cut L', 'Cut W', 'Qty', 'Edge code', 'Tape', 'Tape mm',
+  const parts = [['Part', 'Area', 'Component', 'Material', 'Colour', 'Th (mm)', 'Finished W', 'Finished L', 'Cut W', 'Cut L', 'Qty', 'Edge code', 'Tape', 'Tape mm',
     'Grain', 'Groove', 'Special', 'Remarks', 'Route', 'PMES area', 'PMES part', 'Edge bander', 'Board']];
-  (jo.parts || []).forEach((p) => parts.push([p.p, p.area, p.name, p.material, p.color, p.thickness || '', p.L, p.W, p.cutL, p.cutW, p.qty,
+  (jo.parts || []).forEach((p) => parts.push([p.p, p.area, p.name, p.material, p.color, p.thickness || '', p.W, p.L, p.cutW, p.cutL, p.qty,
     p.ebt || '', p.tape || '', p.tapeMm || '', p.grain || '', p.grooving || '', [p.special || '', _joxSvcText(p)].filter(Boolean).join(' · '),
     p.remark || '', (p.route || []).join(' > '), p.pmesArea || '', p.pmesPart || '', p.bander || '', (p.boardOf || []).map((n) => n + 1).join(', ')]));
-  const pieces = [['Part', 'Component', 'Piece', 'Scan code', 'Barcode ID', 'Cut L', 'Cut W', 'Th (mm)', 'Material']];
+  const pieces = [['Part', 'Component', 'Piece', 'Scan code', 'Barcode ID', 'Cut W', 'Cut L', 'Th (mm)', 'Material']];
   (jo.parts || []).forEach((p) => (p.barcodes || []).forEach((b, n) => pieces.push([p.p, p.name, (n + 1) + ' of ' + p.qty, (p.scan || [])[n] || '', b,
-    p.cutL, p.cutW, p.thickness || '', [p.material, p.color].filter(Boolean).join(' ')])));
+    p.cutW, p.cutL, p.thickness || '', [p.material, p.color].filter(Boolean).join(' ')])));
   const summary = [['Job Order', job.job_code || jo.joNumber || ''], ['Quotation', job.quotation_serial || jo.serial || ''], ['Option', jo.optionLabel || ''],
     ['Client', jo.client || ''], ['Project', jo.project || ''], ['Company', jo.company || ''], ['Prepared by', jo.preparedBy || ''],
     ['Job Order review', job.jo_review_status || ''], ['Pieces', jo.pieceCount || 0], ['Parts', (jo.parts || []).length], ['Boards', jo.boardCount || 0],
@@ -50,11 +50,11 @@ function joExportRows(job, stages, components) {
   // One sheet per process: the pieces that go through it (the process JO).
   const procs = (stages || []).map((s) => {
     const st = (State.stageTypes || []).find((t) => t.code === s.stage_code);
-    const rows = [['Scan code', 'Part', 'Name', 'Material', 'Th', 'Cut L', 'Cut W', 'Finished L', 'Finished W', 'Edges', 'Tape', 'Grain', 'Groove', 'Special', 'Remarks']];
+    const rows = [['Scan code', 'Part', 'Name', 'Material', 'Th', 'Cut W', 'Cut L', 'Finished W', 'Finished L', 'Edges', 'Tape', 'Grain', 'Groove', 'Special', 'Remarks']];
     componentsForStage(components || [], s.stage_code, job).forEach((c) => {
       const p = c.spec || {};
       rows.push([c.scan_code || c.full_barcode_id || '', p.part || c.part_code || '', p.name || c.component_code || '', p.material || '', p.thickness || '',
-        p.cutL || '', p.cutW || '', p.L || '', p.W || '', p.ebt || '', p.tape || '', p.grain || '', p.grooving || '', p.special || '', p.remark || '']);
+        p.cutW || '', p.cutL || '', p.W || '', p.L || '', p.ebt || '', p.tape || '', p.grain || '', p.grooving || '', p.special || '', p.remark || '']);
     });
     return { name: s.stage_code + ' ' + (st ? st.label : ''), rows };
   });
