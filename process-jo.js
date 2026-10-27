@@ -13,6 +13,27 @@
    release, and from the quotation's file folder.
    Printed pages use fixed colours only.
    ===================================================================== */
+// Edge code as the floor reads it: L = the LONG sides of the piece, S = the SHORT sides. The stored code
+// is keyed on the length/width FIELDS, so a piece entered wider than long (564 W x 100 L) stored its two
+// long sides as "2s" and the sheet told the operator to band the short ones (QT-W00000362, 27 Oct 2026).
+// Works from sc/lc when the part has them, otherwise from the code (pmes_components.spec has no sc/lc).
+function pjoEbtLS(p) {
+  p = p || {};
+  let sc = p.sc, lc = p.lc;
+  if (sc == null || lc == null) {
+    const M = { 'n/a': [0, 0], '': [0, 0], '4s': [2, 2], '1s': [1, 0], '2s': [2, 0], '1l': [0, 1], '2l': [0, 2], '1s/1l': [1, 1], '1s/2l': [1, 2], '2s/1l': [2, 1] };
+    const m = M[String(p.ebt || '').trim().toLowerCase()];
+    if (!m) return String(p.ebt || '');
+    sc = m[0]; lc = m[1];
+  }
+  sc = +sc || 0; lc = +lc || 0; if (!sc && !lc) return '';
+  const L = +(p.cutL || p.L) || 0, W = +(p.cutW || p.W) || 0;
+  const lenIsLong = L > W || (L === W && String(p.grain || '').charAt(0).toLowerCase() !== 'w');
+  const lo = lenIsLong ? lc : sc, sh = lenIsLong ? sc : lc;
+  if (lo === 2 && sh === 2) return '4S';
+  return [lo ? lo + 'L' : '', sh ? sh + 'S' : ''].filter(Boolean).join(' ');
+}
+
 
 const PJO_DAYS = 6;
 
@@ -135,8 +156,8 @@ function _pjoEdgeLayout(mjo, parts) {
     tapes[k] = (tapes[k] || 0) + lm;
   });
   return '<div class="edges">' + banded.map((p) => `<div class="edge"><div>${_pjoEdgeDiagram(p)}</div>`
-      + `<div><b>${_pjoE(p.p)}</b> ${_pjoE(p.name)} ×${p.qty}<br>${_pjoE(p.W)}×${_pjoE(p.L)} · <b>${_pjoE(p.ebt)}</b><br>${_pjoE(p.tape || '')}</div></div>`).join('') + '</div>'
-    + '<p class="muted">Red = banded edge. Top/bottom lines run along the length; the sides along the width.</p>'
+      + `<div><b>${_pjoE(p.p)}</b> ${_pjoE(p.name)} ×${p.qty}<br>${_pjoE(p.W)}×${_pjoE(p.L)} · <b>${_pjoE(pjoEbtLS(p))}</b><br>${_pjoE(p.tape || '')}</div></div>`).join('') + '</div>'
+    + '<p class="muted">Edge: L = long side, S = short side of the piece (2L = both long sides, 4S = all four). Red = banded edge. Top/bottom lines run along the length; the sides along the width.</p>'
     + '<table class="t"><tr><th>Tape</th><th>Length (no wastage)</th></tr>'
     + Object.keys(tapes).map((k) => `<tr><td>${_pjoE(k)}</td><td>${tapes[k].toFixed(2)} m</td></tr>`).join('') + '</table>';
 }
@@ -246,7 +267,7 @@ async function printProcessJO(jobId, stageCode) {
     ['Cut W × L', (c) => '<b>' + size(sp(c).cutL, sp(c).cutW) + '</b>'],
     ['Grain', (c) => e(sp(c).grain || '')], ['Special', (c) => '<b>' + e(sp(c).special || '') + '</b>']);
   else if (edge) cols.push(['Finished W × L', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
-    ['Edges', (c) => '<b>' + e(sp(c).ebt || '') + '</b>'], ['Tape', (c) => e(sp(c).tape || '') + (sp(c).tapeMm ? ' (' + sp(c).tapeMm + 'mm)' : '')]);
+    ['Edges', (c) => '<b>' + e(pjoEbtLS(sp(c))) + '</b>'], ['Tape', (c) => e(sp(c).tape || '') + (sp(c).tapeMm ? ' (' + sp(c).tapeMm + 'mm)' : '')]);
   else if (groove) cols.push(['Finished W × L', (c) => '<b>' + size(sp(c).L, sp(c).W) + '</b>'],
     ['Material', (c) => e(sp(c).material || '')], ['Grooving', (c) => '<b>' + e(sp(c).grooving || '') + '</b>'],
     ['Grain', (c) => e(sp(c).grain || '')]);

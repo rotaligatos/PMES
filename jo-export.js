@@ -29,7 +29,7 @@ function joExportRows(job, stages, components) {
   const parts = [['Part', 'Area', 'Component', 'Material', 'Colour', 'Th (mm)', 'Finished W', 'Finished L', 'Cut W', 'Cut L', 'Qty', 'Edge code', 'Tape', 'Tape mm',
     'Grain', 'Groove', 'Special', 'Remarks', 'Route', 'PMES area', 'PMES part', 'Edge bander', 'Board']];
   (jo.parts || []).forEach((p) => parts.push([p.p, p.area, p.name, p.material, p.color, p.thickness || '', p.W, p.L, p.cutW, p.cutL, p.qty,
-    p.ebt || '', p.tape || '', p.tapeMm || '', p.grain || '', p.grooving || '', [p.special || '', _joxSvcText(p)].filter(Boolean).join(' · '),
+    pjoEbtLS(p), p.tape || '', p.tapeMm || '', p.grain || '', p.grooving || '', [p.special || '', _joxSvcText(p)].filter(Boolean).join(' · '),
     p.remark || '', (p.route || []).join(' > '), p.pmesArea || '', p.pmesPart || '', p.bander || '', (p.boardOf || []).map((n) => n + 1).join(', ')]));
   const pieces = [['Part', 'Component', 'Piece', 'Scan code', 'Barcode ID', 'Cut W', 'Cut L', 'Th (mm)', 'Material']];
   (jo.parts || []).forEach((p) => (p.barcodes || []).forEach((b, n) => pieces.push([p.p, p.name, (n + 1) + ' of ' + p.qty, (p.scan || [])[n] || '', b,
@@ -54,7 +54,7 @@ function joExportRows(job, stages, components) {
     componentsForStage(components || [], s.stage_code, job).forEach((c) => {
       const p = c.spec || {};
       rows.push([c.scan_code || c.full_barcode_id || '', p.part || c.part_code || '', p.name || c.component_code || '', p.material || '', p.thickness || '',
-        p.cutW || '', p.cutL || '', p.W || '', p.L || '', p.ebt || '', p.tape || '', p.grain || '', p.grooving || '', p.special || '', p.remark || '']);
+        p.cutW || '', p.cutL || '', p.W || '', p.L || '', pjoEbtLS(p), p.tape || '', p.grain || '', p.grooving || '', p.special || '', p.remark || '']);
     });
     return { name: s.stage_code + ' ' + (st ? st.label : ''), rows };
   });

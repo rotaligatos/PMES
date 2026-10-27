@@ -83,7 +83,7 @@ function printPartLabels(jobId) {
     const code = (p.barcodes || [])[k] || (p.barcodes || [])[0] || '';
     const scan = (p.scan && (p.scan[k] || p.scan[0])) || code;
     labels.push({ scan, p: p.p, name: p.name, area: p.area, L: p.L, W: p.W, cutL: p.cutL, cutW: p.cutW, th: p.thickness || 0,
-      material: [p.material, p.color].filter(Boolean).join(' '), ebt: p.ebt || '', sc: p.sc || 0, lc: p.lc || 0, tape: p.tape || '', where,
+      material: [p.material, p.color].filter(Boolean).join(' '), ebt: p.ebt || '', sc: p.sc || 0, lc: p.lc || 0, grain: p.grain || '', tape: p.tape || '', where,
       work: (p.services || []).filter((x) => !/groov/i.test(x.service || '')).map((x) => x.service + (x.side ? ' — along ' + x.side : '')).concat(p.remark ? [p.remark] : []).join(' · '),
       client: jo.client || '', project: jo.project || '', order: jo.orderRef || '',
       grain: p.grained ? (p.grain || 'length') : '' });

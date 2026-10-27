@@ -145,7 +145,7 @@ function printRemakeLabel(componentId) {
   if (!c) return;
   const s = c.spec || {}, p = (jo && (jo.parts || []).find((x) => x.p === s.part)) || {};
   const label = { scan: c.scan_code || c.full_barcode_id, p: s.part, name: s.name, area: s.area, L: s.L, W: s.W, cutL: s.cutL, cutW: s.cutW, th: s.thickness || 0,
-    material: s.material || '', ebt: s.ebt || '', sc: p.sc || 0, lc: p.lc || 0, tape: s.tape || '', where: 'REMAKE ' + (c.remake_no || 1) + ' — ' + (s.board || ''),
+    material: s.material || '', ebt: s.ebt || '', sc: p.sc || 0, lc: p.lc || 0, grain: s.grain || '', tape: s.tape || '', where: 'REMAKE ' + (c.remake_no || 1) + ' — ' + (s.board || ''),
     work: s.remark || '', client: (jo && jo.client) || '', project: (jo && jo.project) || '', order: (jo && jo.orderRef) || '', grain: p.grained ? (s.grain || 'length') : '' };
   const abs = (rel) => { try { return new URL(rel, location.href).href; } catch (e) { return rel; } };
   const lg = _lblLogoFor(job), logo = lg && !/^data:/.test(lg) ? abs(lg) : lg;
