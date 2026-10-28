@@ -72,44 +72,19 @@ async function qaSubmit(jobId) {
 
 /* ---- Overview: where the job is in the flow ---- */
 async function renderJobFlow(job, el) {
-  const d = State.jd, mrs = State.jobMRs || [];
-  let client = [], concerns = [], boards = [], plans = [], rejects = [];
-  try {
-    [client, concerns, boards, plans, rejects] = await Promise.all([
-      InboundData.client(job.id).catch(() => []), InboundData.concerns(job.id).catch(() => []),
-      (typeof BoardsData !== 'undefined' ? BoardsData.boards(job.id) : Promise.resolve([])).catch(() => []),
-      (typeof BoardsData !== 'undefined' ? BoardsData.plans(job.id) : Promise.resolve([])).catch(() => []),
-      (typeof RejectData !== 'undefined' ? RejectData.list(job.id) : Promise.resolve([])).catch(() => [])]);
-  } catch (e) {}
-  const mrLines = [].concat(...mrs.map((m) => m.lines || []));
-  const toRecv = mrLines.filter((l) => (+l.received || 0) < (+l.qty || 0)).length + client.filter((c) => !c.condition).length;
-  const recvd = mrLines.filter((l) => +l.received > 0).length + client.filter((c) => +c.qty_received > 0).length;
-  const toQa = mrLines.filter((l) => +l.received > 0 && !l.qa_result).length + client.filter((c) => +c.qty_received > 0 && !c.qa_result).length;
-  const damaged = mrLines.filter((l) => l.qa_result === 'damaged').length + client.filter((c) => c.qa_result === 'damaged').length;
-  const planned = ((job.mother_jo && job.mother_jo.boards) || []).reduce((n, b) => n + (b.boardsNeeded || 0), 0);
-  const openC = concerns.filter((c) => c.status === 'open').length, adopted = plans.find((p) => p.status === 'adopted');
-  const rv = job.jo_review_status || 'received', approved = rv === 'approved';
-  const comps = d.components || [], fin = comps.filter((c) => c.status === 'complete').length;
-  const pendRj = rejects.filter((r) => r.status === 'pending').length;
-  const qc = typeof pieceStats === 'function' ? pieceStats('QC', comps, job, d.done || []) : { planned: 0, done: 0 };
-  const hasMat = mrLines.length + client.length > 0;
-  const steps = [
-    { tab: 'receive', n: 1, t: 'Receiving', who: 'Material Receiving', st: !hasMat ? 'na' : toRecv ? (recvd ? 'now' : 'wait') : 'done',
-      note: !hasMat ? 'No MRF or client materials' : toRecv ? toRecv + ' line(s) still to receive' : 'Everything received' },
-    { tab: 'qa_in', n: 2, t: 'QA inspection', who: 'QA', st: !hasMat && !planned ? 'na' : (toQa || boards.length < planned) ? (recvd || boards.length ? 'now' : 'wait') : 'done',
-      note: [toQa ? toQa + ' material line(s) to inspect' : '', planned ? boards.length + ' of ' + planned + ' boards inspected' : '', damaged ? damaged + ' line(s) damaged' : ''].filter(Boolean).join(' · ') || 'Inspected' },
-    { tab: 'review', n: 3, t: 'Review & plan', who: 'Office staff → Supervisor', st: approved ? 'done' : openC ? 'block' : (rv === 'checked' || rv === 'supervisor_ok') ? 'now' : 'wait',
-      note: (openC ? openC + ' material concern(s) open · ' : '') + (adopted ? 'cut plan v' + adopted.version + ' adopted · ' : '') + ({ received: 'JO not checked yet', checked: 'checked — waiting for supervisor', supervisor_ok: 'waiting for manager', approved: 'JO approved', returned: 'JO returned' }[rv] || rv) },
-    { tab: 'production', n: 4, t: 'Production', who: 'Supervisor assigns operators · Operators', st: !approved ? 'wait' : comps.length && fin === comps.length ? 'done' : pendRj ? 'block' : 'now',
-      note: comps.length ? fin + ' of ' + comps.length + ' pieces through every process' + (pendRj ? ' · ' + pendRj + ' reject(s) for the supervisor' : '') : 'No pieces' },
-    { tab: 'release', n: 5, t: 'QA & release', who: 'QA', st: job.status === 'handed_off' ? 'done' : qc.planned && qc.done === qc.planned && !pendRj ? 'now' : 'wait',
-      note: job.status === 'handed_off' ? 'Handed off' : qc.planned ? qc.done + ' of ' + qc.planned + ' pieces passed QA' : 'No QA step on the route' },
-  ];
+  // Phase 1 (2026-10-29): the strip comes from pmes_job_flow — the same answer the job status,
+  // the gate and (next) every list use. Nothing about the steps is worked out here any more.
+  let f = null;
+  try { const { data, error } = await sb.rpc('pmes_job_flow', { p_job: job.id }); if (error) throw error; f = data; }
+  catch (e) { el.innerHTML = '<div class="callout blocked">Could not load where this job is: ' + escapeHtml(e.message) + '</div>'; return; }
+  if (!f) { el.innerHTML = ''; return; }
   const col = { done: ['green', '✓ Done'], now: ['amber', 'In progress'], wait: ['gray', 'Waiting'], block: ['red', 'Needs attention'], na: ['gray', 'Not needed'] };
+  const w = f.waiting_on;
   el.innerHTML = `<div class="card"><h2>Where this job is</h2>
-    <div class="flow-steps">${steps.map((s) => { const c = col[s.st];
-      return `<button class="flow-step ${s.st}" onclick="setJobTab('${s.tab}')"><span class="flow-n">${s.st === 'done' ? '✓' : s.n}</span>
-        <span class="flow-body"><strong>${s.t}</strong><span class="small">${escapeHtml(s.who)}</span><span class="small">${escapeHtml(s.note)}</span></span>
+    ${w ? `<p class="small" style="margin:0 0 8px;"><strong>Waiting on ${escapeHtml(w.dept)} · ${escapeHtml(w.team)}</strong> — ${escapeHtml(w.note)}</p>` : '<p class="small" style="margin:0 0 8px;"><strong>All steps done.</strong></p>'}
+    <div class="flow-steps">${(f.steps || []).map((s) => { const c = col[s.state] || col.wait;
+      return `<button class="flow-step ${s.state}" onclick="setJobTab('${s.key}')"><span class="flow-n">${s.state === 'done' ? '✓' : s.n}</span>
+        <span class="flow-body"><strong>${escapeHtml(s.title)}</strong><span class="small">${escapeHtml(s.dept + ' · ' + s.team)}</span><span class="small">${escapeHtml(s.note || '')}</span></span>
         <span class="badge ${c[0]}">${c[1]}</span></button>`; }).join('')}</div></div>`;
 }
 

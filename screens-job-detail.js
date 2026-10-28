@@ -656,13 +656,7 @@ async function assignRoute(jobId) {
 function openStageActionSheet(stageId, jobId) {
   openSheet(`
     <div class="sheet-title">Update stage</div>
-    <p class="small" style="margin-bottom:14px;">Log actual progress for this stage. Delay flag + reason only — no approval workflow in v1.</p>
-    <label class="field-label">Status</label>
-    <select id="stageStatusSelect">
-      <option value="queued">Queued</option>
-      <option value="in_progress">In progress</option>
-      <option value="complete">Complete</option>
-    </select>
+    <p class="small" style="margin-bottom:14px;">The stage's status moves by itself as pieces are marked done (Scan or Pieces). Use this for the operator, machine and a delay flag.</p>
     <label class="field-label">Operator</label>
     <input type="text" id="stageOperator" placeholder="Operator name / badge id" value="${escapeHtml((State.me && State.me.name) || '')}" />
     <label class="field-label">Machine assignment (optional)</label>
@@ -678,15 +672,13 @@ function openStageActionSheet(stageId, jobId) {
 }
 
 async function submitStageUpdate(stageId, jobId) {
-  const status = document.getElementById('stageStatusSelect').value;
   const operator = document.getElementById('stageOperator').value.trim() || null;
   const machine_assignment = document.getElementById('stageMachine').value.trim() || null;
   const delay_flag = document.getElementById('stageDelayFlag').checked;
   const delay_reason = document.getElementById('stageDelayReason').value.trim() || null;
 
-  const patch = { status, operator, machine_assignment, delay_flag, delay_reason };
-  if (status === 'in_progress') patch.started_at = new Date().toISOString();
-  if (status === 'complete') patch.completed_at = new Date().toISOString();
+  // Status is never set by hand (Phase 1, 2026-10-29): it follows the pieces marked done.
+  const patch = { operator, machine_assignment, delay_flag, delay_reason };
 
   try {
     await Data.updateJobStage(stageId, patch);
@@ -812,7 +804,6 @@ async function createPackingListForJob(jobId) {
     const rows = Object.values(buckets).map((b) => ({ ...b, packing_list_id: pl.id }));
     if (rows.length) await Data.createTallyCards(rows);
 
-    await Data.updateJob(jobId, { status: 'packing' });
     toast('Packing list and tally card generated.', 'success');
     render();
   } catch (e) {
