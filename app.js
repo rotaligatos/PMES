@@ -428,7 +428,7 @@ const Data = {
 /* --------------------------- 2. App state --------------------------- */
 
 const State = {
-  screen: 'dashboard',
+  screen: 'mywork',
   routeMappings: [],
   stageTypes: [],
   areas: [],
@@ -482,7 +482,7 @@ function goToJob(id, tab) {
 }
 
 // Screens reached from the More menu light up the More tab.
-const MORE_SCREENS = ['intake', 'excess', 'ie', 'settings'];
+const MORE_SCREENS = ['intake', 'excess', 'ie', 'settings', 'dashboard', 'materials'];
 function goToScreen(name) { if (typeof stopCameraScan === 'function' && name !== 'scan') stopCameraScan();
   const tab = MORE_SCREENS.includes(name) ? 'more' : name;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === tab));
@@ -493,7 +493,10 @@ function goToScreen(name) { if (typeof stopCameraScan === 'function' && name !==
 // What the More menu offers this person (Rommel 2026-09-27: IE and Setup are for managers).
 function moreItems() {
   const acting = !!(State.me && State.me.acting_for);
+  const notOp = (State.me && State.me.role) !== 'operator';
   return [
+    ['dashboard', '📊', 'Overview', 'Every open job and the counts behind each step', pmesCan('supervisor') || pmesIsQa('supervisor')],
+    ['materials', '📦', 'Materials overview', 'Receiving, QA and office lanes across all jobs', notOp],
     ['intake', '➕', 'New Job', 'Make a job by hand (jobs normally come from KEYSTONE)', pmesCan('supervisor')],
     ['excess', '🪵', 'Excess material', 'Offcuts and leftover stock', pmesCan('supervisor')],
     ['ie', '📐', 'Industrial Engineering', 'Capacity, standards, line balance', pmesCan('manager')],
@@ -515,8 +518,12 @@ async function render() {
   main.classList.remove('no-pad');
 
   switch (State.screen) {
+    case 'mywork':
+      title.textContent = 'My work';
+      await renderMyWork(main);
+      break;
     case 'dashboard':
-      title.textContent = 'Dashboard';
+      title.textContent = 'Overview';
       await renderDashboard(main);
       break;
     case 'jobs':
@@ -689,11 +696,22 @@ function pmesStageAllowed(code) {
   const st = pmesStations();
   return !st.length || st.includes(code);
 }
+// Phase 3 (2026-10-29): each role sees only the tabs for its own work (plan: "What each person sees").
+const PMES_TABS = {
+  operator: ['scan', 'mywork'],
+  materials: ['mywork', 'jobs', 'more'],
+  staff: ['mywork', 'jobs', 'more'],
+  shift_head: ['mywork', 'jobs', 'schedule', 'more'],
+  production_engineer: ['mywork', 'jobs', 'schedule', 'more'],
+  supervisor: ['mywork', 'jobs', 'scan', 'schedule', 'more'],
+  qa: ['mywork', 'jobs', 'scan', 'more'], qa_supervisor: ['mywork', 'jobs', 'scan', 'more'], qa_manager: ['mywork', 'jobs', 'scan', 'more'],
+};
+function pmesTabs() { return PMES_TABS[(State.me && State.me.role) || ''] || ['mywork', 'jobs', 'scan', 'schedule', 'more']; }
 function applyRoleToNav() {
-  const role = (State.me && State.me.role) || '';
-  const hide = { materials: role === 'operator', more: !moreItems().length };
+  const tabs = pmesTabs();
   document.querySelectorAll('.tab-btn').forEach((b) => {
-    b.style.display = hide[b.dataset.screen] ? 'none' : '';
+    const k = b.dataset.screen;
+    b.style.display = (tabs.includes(k) && !(k === 'more' && !moreItems().length)) ? '' : 'none';
   });
 }
 
@@ -752,7 +770,8 @@ async function authGate() {
   document.querySelector('nav.tabbar').style.display = '';
   applyRoleToNav();
   // Each role lands where they work: operators on Scan, the materials person on Materials.
-  const home = me.role === 'operator' ? 'scan' : (me.role === 'materials' || ['qa', 'qa_supervisor', 'qa_manager'].includes(me.role)) ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
+  // Phase 3: everyone lands on My work, except operators (Scan) and the shift head / engineer (Schedule).
+  const home = me.role === 'operator' ? 'scan' : ['shift_head', 'production_engineer'].includes(me.role) ? 'schedule' : 'mywork';
   State.screen = home;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();

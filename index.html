@@ -565,6 +565,24 @@ tr.now td{background:#fff8e6;}
 .mr-cond-btn.on.wrong_item{background:#fdeaea;border-color:#7b1fa2;color:#5b0f78;}
 .mr-cond{flex-wrap:wrap;}
 .flow-steps{display:grid;gap:8px;}
+/* ---- My work (Phase 3) ---- */
+.mw-card{padding:12px 14px;}
+.mw-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:10px 0 4px;}
+.mw-seg{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.mw-seg-bar{height:6px;border-radius:3px;background:#cbd5e1;}
+.mw-seg.done .mw-seg-bar{background:var(--green,#2e7d32);}
+.mw-seg.now .mw-seg-bar{background:var(--amber,#d97706);}
+.mw-seg.block .mw-seg-bar{background:var(--red,#c0271d);}
+.mw-seg.na .mw-seg-bar{background:#e8edf2;}
+.mw-seg-l{font-size:10.5px;color:#5b6b7b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mw-acts{display:grid;gap:6px;}
+.mw-act{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;border:1px solid var(--border);border-left:5px solid var(--amber,#d97706);background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;}
+.mw-act.block{border-left-color:var(--red,#c0271d);}
+.mw-act.wait{border-left-color:#cbd5e1;}
+.mw-act:hover{background:#f7f9fb;}
+.mw-act-t{grid-column:1;}
+.mw-act .small{grid-column:1;}
+.mw-go{grid-column:2;grid-row:1 / span 2;align-self:center;font-weight:700;color:var(--navy);font-size:13px;}
 .mat-lanes{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
 .mat-lane{border:1px solid var(--border);border-radius:10px;padding:6px 8px;min-width:150px;}
 .mat-lane-t{font-size:11px;font-weight:700;color:#5b6b7b;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;}
@@ -631,9 +649,8 @@ tr.now td{background:#fff8e6;}
   </main>
 
   <nav class="tabbar">
-    <button class="tab-btn active" data-screen="dashboard"><span class="ic">📊</span><span>Dashboard</span></button>
+    <button class="tab-btn active" data-screen="mywork"><span class="ic">✅</span><span>My work</span></button>
     <button class="tab-btn" data-screen="jobs"><span class="ic">📋</span><span>Jobs</span></button>
-    <button class="tab-btn" data-screen="materials"><span class="ic">📦</span><span>Materials</span></button>
     <button class="tab-btn" data-screen="scan"><span class="ic">📷</span><span>Scan</span></button>
     <button class="tab-btn" data-screen="schedule"><span class="ic">📅</span><span>Schedule</span></button>
     <button class="tab-btn" data-screen="more"><span class="ic">☰</span><span>More</span></button>
@@ -652,6 +669,7 @@ tr.now td{background:#fff8e6;}
 <script src="machine-illustrations.js"></script>
 <script src="app.js"></script>
 <script src="screens-dashboard.js"></script>
+<script src="screens-mywork.js"></script>
 <script src="screens-materials.js"></script>
 <script src="screens-jobs.js"></script>
 <script src="screens-job-detail.js"></script>
