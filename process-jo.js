@@ -37,6 +37,16 @@ function pjoEbtLS(p) {
 
 const PJO_DAYS = 6;
 
+// The order pieces are printed on a process JO (cutting: grouped by board). The paper sheet's row
+// numbers and the "Encode sheet" screen both use this, so a returned sheet reads line for line.
+function pjoPrintOrder(components, stageCode, job) {
+  const list = componentsForStage(components, stageCode, job).sort((a, b) => _pjoPartNo(a) - _pjoPartNo(b) || (a.seq_number - b.seq_number));
+  if (stageCode !== 'CUT' && stageCode !== 'SCUT') return list;
+  const groups = {}, order = [];
+  list.forEach((c) => { const b = (c.spec || {}).board || 'Not on a board layout'; if (!groups[b]) { groups[b] = []; order.push(b); } groups[b].push(c); });
+  return [].concat(...order.map((b) => groups[b]));
+}
+
 // Which pieces go through a stage. Pieces from a Modcraft Job Order carry their own route; older
 // pieces follow the job's route (every piece through every stage).
 function componentsForStage(components, stageCode, job) {
@@ -260,7 +270,10 @@ async function printProcessJO(jobId, stageCode) {
   const svcText = (c) => (Array.isArray(sp(c).services) ? sp(c).services : []).filter((x) => svcRe.test(x.service || ''))
     .map((x) => x.service + (x.side ? ' — along ' + x.side : '') ).join('; ');
 
-  const cols = [['Scan code', (c) => '<span class="mono">' + e(c.scan_code || c.full_barcode_id) + '</span>'],
+  const rowNo = new Map(pjoPrintOrder(components, stageCode, job).map((c, i) => [c.id, i + 1]));
+  let pjoNo = '';
+  try { const { data } = await sb.from(T('process_jos')).select('pjo_no').eq('job_id', jobId).eq('stage_code', stageCode).maybeSingle(); pjoNo = (data && data.pjo_no) || ''; } catch (e2) {}
+  const cols = [['#', (c) => '<b>' + (rowNo.get(c.id) || '') + '</b>'], ['Scan code', (c) => '<span class="mono">' + e(c.scan_code || c.full_barcode_id) + '</span>'],
                 ['Part', (c) => '<b>' + e(sp(c).part || c.part_code) + '</b>'],
                 ['Name', (c) => e(sp(c).name || c.component_code)]];
   if (cutting) cols.push(['Material', (c) => e(sp(c).material || '')], ['Th', (c) => e(sp(c).thickness || '')],
@@ -323,7 +336,7 @@ async function printProcessJO(jobId, stageCode) {
     + '.sign{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:16px}.sign div{border-top:1px solid #333;padding-top:3px;color:#555}'
     + '@media print{.noprint{display:none}}</style></head><body>'
     + '<div class="noprint" style="margin-bottom:8px"><button onclick="window.print()">Print</button></div>'
-    + '<h1>Process JO — ' + e(label) + ' (' + e(stageCode) + ')</h1>'
+    + '<h1>Process JO ' + (pjoNo ? '<span class="mono" style="font-size:15px">' + e(pjoNo) + '</span> ' : '') + '— ' + e(label) + ' (' + e(stageCode) + ')</h1>'
     + (isTestJob(job) ? '<div style="background:#dc2626;color:#fff;font:700 13px Arial;padding:6px 10px;margin:4px 0;letter-spacing:.06em">TEST JOB — NOT FOR PRODUCTION</div>' : '')
     + '<div class="sub">Job <b>' + e(job.job_code) + '</b> · mother JO ' + e(mjo ? mjo.joNumber : '—') + ' · quotation ' + e(job.quotation_serial || '—')
     + ' · ' + e(job.destination_company || '') + ' · <b>' + list.length + '</b> piece' + (list.length === 1 ? '' : 's') + ' of ' + components.length
@@ -331,7 +344,66 @@ async function printProcessJO(jobId, stageCode) {
     + '<h3>Pieces — tick the day each piece was done (D1–D' + PJO_DAYS + ')</h3>' + pieces
     + '<h3>Daily log</h3>' + days
     + attach
+    + '<p class="muted" style="margin-top:10px">Return this sheet to the shift head at the end of each day. It is encoded in PMES (job → 4 Production → Encode sheet) row by row, by the numbers in the # column.</p>'
     + '<div class="sign"><div>Prepared by</div><div>Received by (operator)</div><div>Completed / date</div><div>Checked by</div></div>'
+    + '<div class="sign"><div>Encoded in PMES by</div><div>Encoded on (date)</div><div></div><div></div></div>'
     + '</body></html>');
   w.document.close();
+}
+
+
+/* ---- Encode a returned process JO (Phase 5, 2026-10-29) ----
+   No scanner yet: operators tick the printed sheet (D1–D6 per piece) and the shift head or a
+   supervisor encodes it here, one day at a time, in the same row order as the paper. Saved through
+   pmes_component_mark_paper: recorded as 'paper', on the day ticked, with the operators written. */
+async function openEncodeSheet(jobId, stageCode) {
+  let job, components, done = [], pjo = null;
+  try {
+    [job, components] = await Promise.all([Data.getJob(jobId), Data.listComponents(jobId)]);
+    const [d, p] = await Promise.all([
+      sb.from('pmes_component_done').select('component_id,done_at,via,operators').eq('job_id', jobId).eq('stage_code', stageCode),
+      sb.from(T('process_jos')).select('pjo_no,operators').eq('job_id', jobId).eq('stage_code', stageCode).maybeSingle()]);
+    done = d.data || []; pjo = p.data || null;
+  } catch (e) { return toast('Could not load the sheet: ' + e.message, 'error'); }
+  const doneMap = new Map(done.map((x) => [x.component_id, x]));
+  const rows = pjoPrintOrder(components, stageCode, job);
+  const st = State.stageTypes.find((t) => t.code === stageCode);
+  const left = rows.filter((c) => !doneMap.has(c.id) && c.status !== 'scrapped' && c.hold !== 'reject_pending').length;
+  const today = new Date(); const iso = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  State.encodeCtx = { jobId, stageCode };
+  openSheet(`<div class="sheet-title">Encode returned sheet — ${escapeHtml((pjo && pjo.pjo_no) || stageCode)} · ${escapeHtml(st ? st.label : stageCode)}</div>
+    <p class="small" style="margin-bottom:10px;">Tick the rows the operator ticked for <strong>one day</strong>, then save. Do the next day the same way. ${left} of ${rows.length} pieces still to do.</p>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;">
+      <div><label class="field-label">Day on the sheet</label><input type="date" id="encDate" value="${iso}" max="${iso}" style="width:100%;min-height:44px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font:inherit;background:#fff;"></div>
+      <div><label class="field-label">Operator(s) written on the sheet</label><input type="text" id="encOps" placeholder="Names, comma separated" value="${escapeHtml(((pjo && pjo.operators) || []).join(', '))}"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0 6px;font-size:13px;"><input type="checkbox" onchange="document.querySelectorAll('.enc-pc:not(:disabled)').forEach((x)=>{x.checked=this.checked;});encCount()"> Tick every row still to do</label>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:8px;">
+    <table class="comp-table"><thead><tr><th>#</th><th>Scan code</th><th>Part</th><th>Name</th><th style="text-align:center">Done</th></tr></thead><tbody>
+    ${rows.map((c, i) => { const d = doneMap.get(c.id), sp = c.spec || {}, blocked = c.status === 'scrapped' || c.hold === 'reject_pending';
+      return `<tr><td><strong>${i + 1}</strong></td><td class="mono small">${escapeHtml(c.scan_code || c.full_barcode_id || '')}</td><td>${escapeHtml(sp.part || c.part_code || '')}</td><td class="small">${escapeHtml(sp.name || c.component_code || '')}</td>
+        <td style="text-align:center">${d ? '<span class="small" title="' + escapeHtml((d.via || '') + (d.operators ? ' · ' + d.operators.join(', ') : '')) + '">✓ ' + fmtDate(d.done_at) + '</span>'
+          : blocked ? '<span class="small">' + (c.status === 'scrapped' ? 'scrapped' : 'rejected') + '</span>'
+          : `<input type="checkbox" class="enc-pc" value="${c.id}" onchange="encCount()" style="width:20px;height:20px;">`}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <button class="btn primary block" id="encSave" style="margin-top:12px;" onclick="encSave()">Save 0 pieces</button>`);
+}
+function encCount() { const n = document.querySelectorAll('.enc-pc:checked').length, b = document.getElementById('encSave'); if (b) b.textContent = 'Save ' + n + ' piece' + (n === 1 ? '' : 's'); }
+async function encSave() {
+  const c = State.encodeCtx; if (!c) return;
+  const ids = Array.from(document.querySelectorAll('.enc-pc:checked')).map((x) => x.value);
+  if (!ids.length) return toast('Tick the rows the operator ticked for that day.', 'error');
+  const day = document.getElementById('encDate').value, ops = document.getElementById('encOps').value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!day) return toast('Enter the day on the sheet.', 'error');
+  if (!ops.length) return toast('Enter the operator(s) written on the sheet.', 'error');
+  const b = document.getElementById('encSave'); if (b) { b.disabled = true; b.textContent = 'Saving…'; }
+  try {
+    const { data, error } = await sb.rpc('pmes_component_mark_paper', { p_components: ids, p_stage: c.stageCode, p_done_on: day, p_operators: ops });
+    if (error) throw error;
+    const sk = (data && data.skipped) || [];
+    toast((data ? data.marked : ids.length) + ' piece(s) encoded for ' + day + (sk.length ? ' · ' + sk.length + ' skipped' : '') + '.', 'success');
+    closeSheet(); render();
+  } catch (e) {
+    toast('Could not save: ' + e.message, 'error'); if (b) { b.disabled = false; encCount(); }
+  }
 }

@@ -131,7 +131,7 @@ function pbDemoRecalc() {
       ? `<div class="callout" style="background:#fff4d6;border:1px solid #e0b43a;color:#5a4200;margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <strong>PRACTICE — sample Job Orders.</strong><span class="small">Sample capacity (lm, boards, holes, pieces per day) and a Mon–Sat work week. Every button works, but nothing is saved and nobody is notified.</span>
           <span style="flex:1"></span><button class="btn outline sm" onclick="pbDemoStart()">Start over</button> <button class="btn primary sm" onclick="pbDemoStop()">Back to the real schedule</button></div>`
-      : (pmesCan('production_engineer') || pmesCan('shift_head') ? `<div style="text-align:right;margin:-4px 0 8px"><a href="#" class="small" onclick="pbDemoStart();return false" title="See the schedule filled with sample Job Orders — nothing is saved">▶ Practice with sample Job Orders</a></div>` : '');
+      : (false /* Phase 5: practice board retired */ && (pmesCan('production_engineer') || pmesCan('shift_head')) ? `<div style="text-align:right;margin:-4px 0 8px"><a href="#" class="small" onclick="pbDemoStart();return false" title="See the schedule filled with sample Job Orders — nothing is saved">▶ Practice with sample Job Orders</a></div>` : '');
     top.insertBefore(bar, top.firstChild);
   };
   window.goToJob = function (id, tab) {

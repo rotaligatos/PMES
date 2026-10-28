@@ -184,7 +184,7 @@ function _drawJobTabInner() {
               ${s.status !== 'complete' && joApproved(job) ? `<button class="btn outline sm" onclick="openStageActionSheet('${s.id}','${job.id}')">Update</button>` : ''}
             </div></div>`; }).join('')}</div>` : ''}
       ${stages.length && joApproved(job) ? '<div id="jdAssign"></div>' : ''}
-      ${stages.length && joApproved(job) ? renderOutputCard(job, stages, components, outputs, machines) : ''}
+      ${stages.length && joApproved(job) && !components.length ? renderOutputCard(job, stages, components, outputs, machines) : ''}   ${/* Phase 5: jobs that track pieces record them on the process JO (paper or scan); the daily output count is only for jobs without pieces */ ''}
       ${components.length ? '<div id="jdRejects"></div>' + (job.mother_jo && (job.mother_jo.parts || []).length ? renderLabelsCard(job) : '') + '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>' : ''}`;
     if (components.length) renderRejectsCard(job, document.getElementById('jdRejects'));
     if (document.getElementById('jdAssign')) renderAssignCard(job, document.getElementById('jdAssign'));

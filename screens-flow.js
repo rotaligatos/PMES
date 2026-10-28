@@ -107,7 +107,8 @@ async function renderAssignCard(job, el) {
       <td>${escapeHtml(p.machine_name || '—')}</td><td>${(p.operators || []).length ? escapeHtml(p.operators.join(', ')) : '<span class="small">Not assigned</span>'}</td>
       <td>${badgeForStageStatus(p.status === 'handed_out' ? 'queued' : p.status === 'done' ? 'complete' : p.status === 'in_progress' ? 'in_progress' : 'not_started')}</td>
       <td style="white-space:nowrap">${sup && p.status !== 'done' ? `<button class="btn ${(p.operators || []).length ? 'outline' : 'primary'} sm" ${sched ? '' : 'disabled title="Approve the loading schedule first"'} onclick="assignOpen('${p.id}')">${(p.operators || []).length ? 'Change' : 'Assign'}</button>` : ''}
-        <button class="btn outline sm" onclick="printProcessJO('${job.id}','${p.stage_code}')">Print</button></td></tr>`).join('')}
+        <button class="btn outline sm" onclick="printProcessJO('${job.id}','${p.stage_code}')">Print</button>
+        ${pmesCan('shift_head') && p.status !== 'done' ? `<button class="btn outline sm" onclick="openEncodeSheet('${job.id}','${p.stage_code}')" title="Enter the pieces ticked on the returned paper sheet">Encode sheet</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div>`;
 }
 function assignOpen(pjoId) {

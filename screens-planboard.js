@@ -10,7 +10,10 @@
    ===================================================================== */
 
 const PB = { view: null, edit: null, draft: {}, month: null, data: null };
-const PB_VIEWS = [['gantt', 'Gantt'], ['kanban', 'Kanban'], ['calendar', 'Calendar'], ['today', 'Today (shift)'], ['workcal', 'Work calendar']];
+// Phase 5 (2026-10-29): Gantt and Today only; the work calendar for the engineer and above. Kanban and Calendar views retired.
+const PB_VIEWS_ALL = [['gantt', 'Gantt'], ['today', 'Today (shift)'], ['workcal', 'Work calendar']];
+const PB_VIEWS = PB_VIEWS_ALL;
+function pbViews() { return PB_VIEWS_ALL.filter(([k]) => k !== 'workcal' || pmesCan('production_engineer')); }
 const PJO_STATUS = { to_schedule: ['gray', 'To schedule'], scheduled: ['blue', 'Scheduled'], handed_out: ['amber', 'Handed out'], in_progress: ['amber', 'In progress'], done: ['green', 'Done'] };
 const SCHED_STATUS = { none: ['gray', 'No schedule'], draft: ['amber', 'Schedule draft'], supervisor_ok: ['blue', 'Supervisor approved — waiting for manager'], approved: ['green', 'Schedule approved'] };
 const OFFDAY_STATUS = { pending_manager: ['amber', 'Waiting for manager'], pending_hpo: ['amber', 'Waiting for Head of Plant Ops'], pending_md: ['amber', 'Waiting for Managing Director'], approved: ['green', 'Approved to work'], rejected: ['red', 'Rejected'], cancelled: ['gray', 'Cancelled'] };
@@ -30,7 +33,7 @@ function pbShiftSlots(info) {
 function pbView() {
   if (PB.view) return PB.view;
   try { PB.view = localStorage.getItem('pmes_sched_view'); } catch (e) {}
-  if (!PB.view) PB.view = State.me && State.me.role === 'shift_head' ? 'today' : 'gantt';
+  if (!PB.view || !pbViews().some(([k]) => k === PB.view)) PB.view = State.me && State.me.role === 'shift_head' ? 'today' : 'gantt';
   return PB.view;
 }
 function pbSetView(v) { PB.view = v; try { localStorage.setItem('pmes_sched_view', v); } catch (e) {} pbDraw(); }
@@ -110,7 +113,7 @@ function pbDraw() {
   const d = PB.data, top = document.getElementById('pbTop'), body = document.getElementById('pbBody'); if (!d || !top || !body) return;
   const v = pbView(), jobs = pbJobs();
   top.innerHTML = `<div class="flex-between" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      <div class="seg">${PB_VIEWS.map(([k, l]) => `<button class="${v === k ? 'on' : ''}" onclick="pbSetView('${k}')">${l}</button>`).join('')}</div>
+      <div class="seg">${pbViews().map(([k, l]) => `<button class="${v === k ? 'on' : ''}" onclick="pbSetView('${k}')">${l}</button>`).join('')}</div>
       ${pmesCan('manager') ? `<select style="width:auto;min-width:110px" onchange="SchedState.company=this.value;render()">${COMPANY_CODES.map((c) => `<option ${c === d.co ? 'selected' : ''}>${c}</option>`).join('')}</select>` : `<span class="small">${d.co}</span>`}
     </div>
     ${!d.caps.length ? `<div class="callout blocked">No process capacity is set for ${d.co}, so the system cannot recommend dates — IE → Process capacity.</div>` : ''}`;
