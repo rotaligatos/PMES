@@ -344,7 +344,7 @@ async function printProcessJO(jobId, stageCode) {
     + '<h3>Pieces — tick the day each piece was done (D1–D' + PJO_DAYS + ')</h3>' + pieces
     + '<h3>Daily log</h3>' + days
     + attach
-    + '<p class="muted" style="margin-top:10px">Return this sheet to the shift head at the end of each day. It is encoded in PMES (job → 4 Production → Encode sheet) row by row, by the numbers in the # column.</p>'
+    + '<p class="muted" style="margin-top:10px">Return this sheet to the production office at the end of each day. It is encoded in PMES (job → 4 Production → Encode sheet) row by row, by the numbers in the # column.</p>'
     + '<div class="sign"><div>Prepared by</div><div>Received by (operator)</div><div>Completed / date</div><div>Checked by</div></div>'
     + '<div class="sign"><div>Encoded in PMES by</div><div>Encoded on (date)</div><div></div><div></div></div>'
     + '</body></html>');
@@ -353,8 +353,8 @@ async function printProcessJO(jobId, stageCode) {
 
 
 /* ---- Encode a returned process JO (Phase 5, 2026-10-29) ----
-   No scanner yet: operators tick the printed sheet (D1–D6 per piece) and the shift head or a
-   supervisor encodes it here, one day at a time, in the same row order as the paper. Saved through
+   No scanner yet: operators tick the printed sheet (D1–D6 per piece) and office staff (supervisor
+   and above as backup) encode it here, one day at a time, in the same row order as the paper. Saved through
    pmes_component_mark_paper: recorded as 'paper', on the day ticked, with the operators written. */
 async function openEncodeSheet(jobId, stageCode) {
   let job, components, done = [], pjo = null;

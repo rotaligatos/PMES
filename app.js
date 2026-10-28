@@ -683,13 +683,15 @@ function pmesDept() { const i = State.me && State.me.role_info; return (i && i.d
 // Which department owns each step of the job flow (Phase 4). Other steps are shown read-only.
 const STEP_OWNER = { receive: 'Production · Receiving', qa_in: 'QA · Inspection', review: 'Production · Office staff and supervisor',
   production: 'Production · Floor (shift head, operators, supervisor)', release: 'QA · Final check' };
+// Returned process JO sheets are encoded by office staff, supervisor and above as backup (Rommel 2026-10-29).
+function pmesCanEncode() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
 function pmesOwnsStep(key) {
   const r = (State.me && State.me.role) || '';
   if (r === 'admin' || !STEP_OWNER[key]) return true;
   if (key === 'qa_in' || key === 'release') return pmesIsQa();
   if (key === 'receive') return ['materials', 'supervisor', 'manager'].includes(r);
   if (key === 'review') return ['staff', 'supervisor', 'manager'].includes(r);
-  if (key === 'production') return ['operator', 'shift_head', 'production_engineer', 'supervisor', 'manager'].includes(r);
+  if (key === 'production') return ['operator', 'shift_head', 'production_engineer', 'staff', 'supervisor', 'manager'].includes(r);
   return false;
 }
 // The 5-step strip, compact (lists, job header). onClick: a function name taking the step key, or none.
