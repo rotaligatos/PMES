@@ -31,7 +31,7 @@ function _matLanes(j, insp, recvN, qaN) {
   const role = (State.me && State.me.role) || '', all = pmesCan('supervisor');
   const lane = (title, body) => body ? '<div class="mat-lane"><div class="mat-lane-t">' + title + '</div><div class="mat-lane-b">' + body + '</div></div>' : '';
   const recv = (all || role === 'materials') ? lane('Receiving', recvN ? '<button class="btn primary sm" onclick="goToJob(\'' + j.job_id + '\',\'receive\')">Receive (' + recvN + ')</button>' : '<span class="small">✓ nothing to receive</span>') : '';
-  const qa = (all || role === 'qa') ? lane('QA inspection', (qaN ? '<button class="btn primary sm" onclick="goToJob(\'' + j.job_id + '\',\'qa_in\')">Inspect materials (' + qaN + ')</button>' : '')
+  const qa = (all || pmesIsQa()) ? lane('QA inspection', (qaN ? '<button class="btn primary sm" onclick="goToJob(\'' + j.job_id + '\',\'qa_in\')">Inspect materials (' + qaN + ')</button>' : '')
     + (j.boards_planned ? '<button class="btn ' + (insp ? 'primary' : 'outline') + ' sm" onclick="goToBoards(\'' + j.job_id + '\',\'bdInspect\')">Boards ' + j.boards_inspected + '/' + j.boards_planned + (j.boards_rejected ? ', ' + j.boards_rejected + ' rejected' : '') + '</button>' : '')
     || '<span class="small">✓ nothing to inspect</span>') : '';
   const off = (all || role === 'staff') ? lane('Office staff', (j.boards_planned ? '<button class="btn outline sm" onclick="goToBoards(\'' + j.job_id + '\',\'bdOptimize\')">Cutting plan' + (j.board_requests_open ? ' · ' + j.board_requests_open + ' extra-board request(s)' : '') + '</button>' : '')

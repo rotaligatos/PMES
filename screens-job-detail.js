@@ -758,10 +758,12 @@ async function renderPackingBlock(job, components) {
 
   const completeCount = components.filter((c) => c.status === 'complete').length;
 
+  const qa = pmesIsQa();   // Phase 2: step 5 (packing list, count, hand-off) is QA's
   if (!pl) {
     el.innerHTML = `
       <p class="small">${completeCount} of ${components.length} components marked complete.</p>
-      <button class="btn secondary sm" style="margin-top:8px;" onclick="createPackingListForJob('${job.id}')">
+      ${qa ? '' : '<p class="small">QA makes the packing list and hands the job off.</p>'}
+      <button ${qa ? '' : 'hidden'} class="btn secondary sm" style="margin-top:8px;" onclick="createPackingListForJob('${job.id}')">
         Generate packing list &amp; tally card
       </button>
     `;
@@ -772,7 +774,7 @@ async function renderPackingBlock(job, components) {
     <p class="small">Expected: ${pl.expected_component_count} · Scanned: ${pl.scanned_component_count}</p>
     ${badgeForJobStatus(pl.status === 'handed_off' ? 'handed_off' : (pl.status === 'confirmed' ? 'packing' : 'intake'))}
     ${pl.status !== 'handed_off' ? `
-      <div class="btn-row" style="margin-top:10px;">
+      <div class="btn-row" style="margin-top:10px;" ${qa ? '' : 'hidden'}>
         <button class="btn outline sm" onclick="confirmPackingList('${pl.id}','${job.id}')">Confirm scan count</button>
         <button class="btn primary sm" onclick="handOffToRTMS('${pl.id}','${job.id}')">Hand off to RTMS</button>
       </div>
@@ -825,12 +827,13 @@ async function confirmPackingList(plId, jobId) {
 }
 
 async function handOffToRTMS(plId, jobId) {
+  // Phase 2: one QA-only call; the database checks every piece and reject before it lets go.
   try {
-    await Data.updatePackingList(plId, { status: 'handed_off', handed_off_at: new Date().toISOString() });
-    await Data.updateJob(jobId, { status: 'handed_off' });
-    toast('Handed off to RTMS.', 'success');
+    const { error } = await sb.rpc('pmes_job_handoff', { p_packing_list: plId });
+    if (error) throw error;
+    toast('Handed off to Hatid.', 'success');
     render();
   } catch (e) {
-    toast('Handoff failed: ' + e.message, 'error');
+    toast('Could not hand off: ' + e.message, 'error');
   }
 }

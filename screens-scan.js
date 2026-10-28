@@ -98,9 +98,9 @@ async function lookupScannedComponent() {
         </select>
         <label class="field-label">Operator(s) who did the work</label>
         <input type="text" id="scanOperator" placeholder="Name(s), comma separated — blank = the operators the process JO was handed to" value="${escapeHtml(_scanOperatorSaved())}" />
-        ${component.hold === 'reject_pending' ? '<div class="callout blocked" style="margin-top:10px;">This piece is rejected and waiting for the supervisor. Do not process it.</div>' : `<button class="btn primary block" style="margin-top:12px;" onclick="logScanCompletion('${component.id}')">
+        ${component.hold === 'reject_pending' ? '<div class="callout blocked" style="margin-top:10px;">This piece is rejected and waiting for the supervisor. Do not process it.</div>' : `${pmesCan('operator') ? `<button class="btn primary block" style="margin-top:12px;" onclick="logScanCompletion('${component.id}')">
           Good — mark done
-        </button>
+        </button>` : '<p class="small" style="margin-top:12px;">Operators mark pieces done. QA can reject a piece here.</p>'}
         <button class="btn danger block" style="margin-top:8px;" onclick="pieceReject('${component.id}', document.getElementById('scanStageSelect').value, 'scan')">Reject this piece…</button>`}
         ${component.remake_no ? '<p class="small" style="margin-top:6px;"><span class="badge red">Remake ' + component.remake_no + '</span></p>' : ''}
       ` : `<p class="small">No route assigned to this job — cannot determine next stage.</p>`}

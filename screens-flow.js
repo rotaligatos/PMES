@@ -6,7 +6,7 @@
    Database: pmes_qa_inspect (MRF lines + client items), pmes_board_save (QA), pmes_job_material_state
    (complete = received in full AND passed by QA). */
 
-function _qaCan() { return (State.me && State.me.role === 'qa') || pmesCan('supervisor'); }
+function _qaCan() { return pmesIsQa(); }   // Phase 2: QA's step only (production supervisors see it read-only)
 
 /* ---- QA inspection of received materials ---- */
 function renderQaInspect(job, mrs, client) {

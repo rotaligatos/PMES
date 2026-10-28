@@ -137,7 +137,7 @@ async function endDelegation(id) {
 }
 
 /* ---- Production users (PMES admin). Same list the Command Center manages. ---- */
-const PMES_ROLES = ['staff', 'materials', 'operator', 'qa', 'shift_head', 'production_engineer', 'supervisor', 'manager', 'admin'];
+const PMES_ROLES = ['materials', 'staff', 'operator', 'shift_head', 'production_engineer', 'supervisor', 'manager', 'qa', 'qa_supervisor', 'qa_manager', 'admin'];
 
 async function renderPmesUsers() {
   const box = document.getElementById('pmesUsersCard');
@@ -155,7 +155,7 @@ async function renderPmesUsers() {
         ${data.map((u) => `
           <tr data-email="${escapeHtml(u.email)}" style="${u.active ? '' : 'opacity:.55'}">
             <td><input class="pu-name" value="${escapeHtml(u.name)}" style="width:100%"><div class="small mono">${escapeHtml(u.email)}</div></td>
-            <td><select class="pu-role">${PMES_ROLES.map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+            <td><select class="pu-role">${PMES_ROLES.map((r) => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${pmesRoleLabel(r)}</option>`).join('')}</select></td>
             <td class="pu-stations">${stageOpts(u.stations || [])}</td>
             <td><input type="checkbox" class="pu-active" ${u.active ? 'checked' : ''}></td>
             <td><button class="btn outline" onclick="savePmesUser(this)">Save</button></td>

@@ -664,7 +664,19 @@ function escapeHtml(s) {
 State.me = null;
 // staff = office production staff (not a machine operator): reads everything, writes nothing yet.
 // materials = the person who completes the material transfer (confirms MRF receipt); same rank as staff.
-const PMES_RANK = { staff: 5, materials: 5, operator: 10, qa: 12, shift_head: 15, production_engineer: 18, supervisor: 20, manager: 30, admin: 40 };
+// Phase 2 (2026-10-29): two departments. The production ladder below is Production's; QA roles sit
+// outside it (rank 1 = may read everything, acts only on QA steps) and use pmesIsQa() instead.
+const PMES_RANK = { staff: 5, materials: 5, operator: 10, shift_head: 15, production_engineer: 18, supervisor: 20, manager: 30, admin: 40,
+  qa: 1, qa_supervisor: 1, qa_manager: 1 };
+const PMES_QA_LEVEL = { qa: 1, qa_supervisor: 2, qa_manager: 3, admin: 9 };
+// QA steps (incoming inspection, boards, final check and hand-off). Admin counts as QA.
+function pmesIsQa(min) { return (PMES_QA_LEVEL[State.me && State.me.role] || 0) >= ({ supervisor: 2, manager: 3 }[min] || 1); }
+function pmesDept() { const i = State.me && State.me.role_info; return (i && i.department) || 'production'; }
+function pmesRoleLabel(role) {
+  return ({ materials: 'Receiving', staff: 'Office staff', operator: 'Operator', shift_head: 'Shift head (foreman)',
+    production_engineer: 'Production engineer (IE)', supervisor: 'Production supervisor', manager: 'Production manager',
+    qa: 'QA/QC technician', qa_supervisor: 'QA supervisor', qa_manager: 'QA manager', admin: 'Admin' })[role] || role;
+}
 function pmesCan(minRole) {
   return (PMES_RANK[State.me && State.me.role] || 0) >= (PMES_RANK[minRole] || 99);
 }
@@ -724,7 +736,7 @@ function renderUserChip() {
     chip.onclick = () => { if (confirm('Sign out of Production?')) pmesSignOut(); };
     conn.appendChild(chip);
   }
-  chip.textContent = (State.me.name || State.me.email) + ' · ' + State.me.role;
+  chip.textContent = (State.me.name || State.me.email) + ' · ' + pmesRoleLabel(State.me.role);
 }
 
 async function authGate() {
@@ -740,7 +752,7 @@ async function authGate() {
   document.querySelector('nav.tabbar').style.display = '';
   applyRoleToNav();
   // Each role lands where they work: operators on Scan, the materials person on Materials.
-  const home = me.role === 'operator' ? 'scan' : (me.role === 'materials' || me.role === 'qa') ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
+  const home = me.role === 'operator' ? 'scan' : (me.role === 'materials' || ['qa', 'qa_supervisor', 'qa_manager'].includes(me.role)) ? 'materials' : me.role === 'shift_head' ? 'schedule' : 'dashboard';
   State.screen = home;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();
