@@ -14,10 +14,13 @@ async function renderJobsList(main) {
     </div>
   `;
 
-  let jobs = [], concernJobs = {};
+  let jobs = [], concernJobs = {}, flows = {};
   try {
     jobs = await Data.listJobs();
     concernJobs = await InboundData.openConcernJobs().catch(() => ({}));
+    // Phase 4: one call for every job's 5-step strip and who it is waiting on.
+    const r = await sb.rpc('pmes_job_flows', { p_jobs: jobs.map((j) => j.id) });
+    flows = (r && r.data) || {};
   } catch (e) {
     document.getElementById('jobsList').innerHTML = `<div class="empty"><div class="ic">⚠️</div><p>Could not load jobs.</p></div>`;
     return;
@@ -39,9 +42,9 @@ async function renderJobsList(main) {
           ${!j.job_active ? '<span class="badge gray">Inactive</span>' : ''}
           ${badgeForDest(j.destination_company)}
           ${concernJobs[j.id] ? '<span class="badge red">⚠ Material concern</span>' : ''}
-          ${badgeForJoReview(j)}
           ${badgeForJobStatus(j.status)}
         </div>
+        ${flows[j.id] ? `<div class="job-flow">${pmesFlowStrip(flows[j.id].steps)}${pmesWaitingLine(flows[j.id])}</div>` : ''}
       </div>
     `).join('');
   }

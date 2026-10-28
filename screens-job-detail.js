@@ -44,18 +44,27 @@ async function renderJobDetail(main) {
     vouched: '<span class="badge blue" title="KEYSTONE released it on a vouch (credit)">Vouched</span>' }[job.payment_status] || '';
   main.innerHTML = `
     <div class="flex-between" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;">
-      <button class="btn outline sm" onclick="goToScreen('jobs')">← All jobs</button>
-      <span>${badgeForJoReview(job)} ${badgeForJobStatus(job.status)}</span>
+      <button class="btn outline sm" onclick="goToScreen('${State.backTo || 'jobs'}')">← ${escapeHtml(SCREEN_LABEL[State.backTo] || 'Jobs')}</button>
+      <span>${badgeForJobStatus(job.status)}</span>
     </div>
     <h1 class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span class="mono">${escapeHtml(job.job_code)}</span> ${testTag(job)} ${badgeForDest(job.destination_company)} ${payTag}
     </h1>
     <p class="page-sub">${escapeHtml(mo.client || '')}${mo.project ? ' — ' + escapeHtml(mo.project) : ''}${mo.client || mo.project ? ' · ' : ''}${job.quotation_serial ? 'Quotation ' + escapeHtml(job.quotation_serial) : 'No quotation reference'} · Released ${fmtDate(job.created_at)}</p>
     ${!job.job_active ? `<div class="callout blocked"><strong>Inactive.</strong> KEYSTONE has not released this job (payment not met or not vouched).</div>` : ''}
+    <div id="jdStrip" style="margin:4px 0 2px;"></div>
     <div class="subtabs" id="jdTabs"></div>
     <div id="jdBody"></div>`;
   drawJobTab();
+  // Phase 4: the same 5-step strip on every tab (the Overview tab shows it in full instead).
+  sb.rpc('pmes_job_flow', { p_job: jobId }).then(({ data }) => {
+    State.jdFlow = data || null;
+    const el = document.getElementById('jdStrip');
+    if (el && data) el.innerHTML = pmesFlowStrip(data.steps, 'setJobTab') + '<div style="margin:2px 0 4px;">' + pmesWaitingLine(data) + '</div>';
+    _jdStripVisibility();
+  });
 }
+function _jdStripVisibility() { const el = document.getElementById('jdStrip'); if (el) el.style.display = State.jobTab === 'overview' ? 'none' : ''; }
 
 function setJobTab(t) { State.jobTab = JOB_TAB_ALIAS[t] || t; drawJobTab(); }
 
@@ -70,13 +79,20 @@ function _jobTabFlag(t) {
 }
 
 function drawJobTab() {
+  _drawJobTabInner();
+  const t = State.jobTab, body = document.getElementById('jdBody');
+  if (body && STEP_OWNER[t] && !pmesOwnsStep(t)) body.insertAdjacentHTML('afterbegin', '<div class="callout info" style="margin-bottom:10px;"><strong>View only.</strong> This step belongs to ' + escapeHtml(STEP_OWNER[t]) + '. You can see where it stands; the people who own it act on it.</div>');
+}
+function _drawJobTabInner() {
   const d = State.jd; if (!d) return;
   const tabs = document.getElementById('jdTabs'), body = document.getElementById('jdBody');
   if (!tabs || !body) return;
   tabs.innerHTML = JOB_TABS.map(([k, l]) => {
     const f = _jobTabFlag(k);
-    return `<button class="${State.jobTab === k ? 'on' : ''}" onclick="setJobTab('${k}')">${l}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
+    const ro = !pmesOwnsStep(k);
+    return `<button class="${State.jobTab === k ? 'on' : ''}${ro ? ' ro' : ''}" onclick="setJobTab('${k}')" title="${ro ? 'View only — ' + escapeHtml(STEP_OWNER[k] || '') : ''}">${l}${ro ? ' <span class="ro-tag">view</span>' : ''}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
   }).join('');
+  _jdStripVisibility();
   const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady, done } = d;
   const progLine = (s) => components.length ? pieceProgressLine(s, components, job, done) : _outputLine(s, components, outputs, job);
   const t = JOB_TAB_ALIAS[State.jobTab] || State.jobTab; State.jobTab = t;

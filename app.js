@@ -472,9 +472,10 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   });
 });
 
+// Phase 4 (2026-10-29): opening a job keeps the tab you were on, and Back returns there.
+const SCREEN_LABEL = { mywork: 'My work', jobs: 'Jobs', schedule: 'Schedule', scan: 'Scan', dashboard: 'Overview', materials: 'Materials overview' };
 function goToJob(id, tab) {
-  // A job page belongs under Jobs, whichever screen it was opened from.
-  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === 'jobs'));
+  if (State.screen !== 'jobDetail') State.backTo = SCREEN_LABEL[State.screen] ? State.screen : 'jobs';
   State.screen = 'jobDetail';
   State.currentJobId = id;
   State.jobTabNext = tab || null;
@@ -679,6 +680,33 @@ const PMES_QA_LEVEL = { qa: 1, qa_supervisor: 2, qa_manager: 3, admin: 9 };
 // QA steps (incoming inspection, boards, final check and hand-off). Admin counts as QA.
 function pmesIsQa(min) { return (PMES_QA_LEVEL[State.me && State.me.role] || 0) >= ({ supervisor: 2, manager: 3 }[min] || 1); }
 function pmesDept() { const i = State.me && State.me.role_info; return (i && i.department) || 'production'; }
+// Which department owns each step of the job flow (Phase 4). Other steps are shown read-only.
+const STEP_OWNER = { receive: 'Production · Receiving', qa_in: 'QA · Inspection', review: 'Production · Office staff and supervisor',
+  production: 'Production · Floor (shift head, operators, supervisor)', release: 'QA · Final check' };
+function pmesOwnsStep(key) {
+  const r = (State.me && State.me.role) || '';
+  if (r === 'admin' || !STEP_OWNER[key]) return true;
+  if (key === 'qa_in' || key === 'release') return pmesIsQa();
+  if (key === 'receive') return ['materials', 'supervisor', 'manager'].includes(r);
+  if (key === 'review') return ['staff', 'supervisor', 'manager'].includes(r);
+  if (key === 'production') return ['operator', 'shift_head', 'production_engineer', 'supervisor', 'manager'].includes(r);
+  return false;
+}
+// The 5-step strip, compact (lists, job header). onClick: a function name taking the step key, or none.
+function pmesFlowStrip(steps, onClick) {
+  return '<div class="mw-strip">' + (steps || []).map((s) => {
+    const tip = s.n + ' ' + s.title + ' · ' + s.dept + ' · ' + s.team + ' — ' + (s.note || '');
+    return '<span class="mw-seg ' + s.state + (onClick ? ' click' : '') + (pmesOwnsStep(s.key) ? ' mine' : '') + '" title="' + escapeHtml(tip) + '"'
+      + (onClick ? ' onclick="event.stopPropagation();' + onClick + '(\'' + s.key + '\')"' : '') + '>'
+      + '<span class="mw-seg-bar"></span><span class="mw-seg-l">' + s.n + ' ' + escapeHtml(s.title) + '</span></span>';
+  }).join('') + '</div>';
+}
+function pmesWaitingLine(f) {
+  const w = f && f.waiting_on;
+  if (!f) return '';
+  if (!w) return '<span class="small">All steps done</span>';
+  return '<span class="small">Waiting on <strong>' + escapeHtml(w.dept + ' · ' + w.team) + '</strong> — ' + escapeHtml(w.note || '') + '</span>';
+}
 function pmesRoleLabel(role) {
   return ({ materials: 'Receiving', staff: 'Office staff', operator: 'Operator', shift_head: 'Shift head (foreman)',
     production_engineer: 'Production engineer (IE)', supervisor: 'Production supervisor', manager: 'Production manager',
