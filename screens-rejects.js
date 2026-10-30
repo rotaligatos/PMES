@@ -13,7 +13,7 @@ const RejectData = {
   async rpc(fn, args) { const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
 };
 const RejectState = { lastFit: null };
-function _rjCanVerify() { return pmesCan('supervisor'); }
+function _rjCanVerify() { return pmesAct('reject_verify', pmesCan('supervisor')); }
 function _rjCanPlan() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
 function _rjPiece(c) { const s = c.spec || {}; return [s.part, s.name, s.cutL && s.cutW ? s.cutW + '×' + s.cutL : ''].filter(Boolean).join(' · ') || c.full_barcode_id; }
 

@@ -502,12 +502,20 @@ function moreItems() {
     ['excess', '🪵', 'Excess material', 'Offcuts and leftover stock', pmesCan('supervisor')],
     ['ie', '📐', 'Industrial Engineering', 'Capacity, standards, line balance', pmesCan('manager')],
     ['settings', '⚙️', 'Setup', 'Users, delegation, routes and lists', pmesCan('manager') || acting],
-  ].filter((x) => x[4]);
+  ].filter((x) => {
+    // Per-user screens (Command Center → PMES → Users → Screens). Delegated managers keep Setup.
+    const acc = State.me && State.me.access;
+    if (acc && Array.isArray(acc.more)) return acc.more.includes(x[0]) || (x[0] === 'settings' && acting);
+    return x[4];
+  });
 }
 function renderMore(main) {
   const items = moreItems();
-  main.innerHTML = items.length
-    ? `<div class="more-grid">${items.map(([k, ic, t, d]) => `<button onclick="goToScreen('${k}')"><span class="ic">${ic}</span><span><strong>${t}</strong><span class="small">${d}</span></span></button>`).join('')}</div>`
+  // PMES admins: preview the app as any user (read-only). Not offered while already previewing (use the banner).
+  const va = State.realMe && State.realMe.role === 'admin' && !State.viewAs
+    ? `<button onclick="pmesViewAsPicker()"><span class="ic">👁</span><span><strong>View as…</strong><span class="small">See PMES exactly as another user does (read-only)</span></span></button>` : '';
+  main.innerHTML = items.length || va
+    ? `<div class="more-grid">${items.map(([k, ic, t, d]) => `<button onclick="goToScreen('${k}')"><span class="ic">${ic}</span><span><strong>${t}</strong><span class="small">${d}</span></span></button>`).join('')}${va}</div>`
     : '<div class="empty"><p>Nothing else for your role.</p></div>';
 }
 
@@ -684,7 +692,14 @@ function pmesDept() { const i = State.me && State.me.role_info; return (i && i.d
 const STEP_OWNER = { receive: 'Production · Receiving', qa_in: 'QA · Inspection', review: 'Production · Office staff and supervisor',
   production: 'Production · Floor (shift head, operators, supervisor)', release: 'QA · Final check' };
 // Returned process JO sheets are encoded by office staff, supervisor and above as backup (Rommel 2026-10-29).
-function pmesCanEncode() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
+function pmesCanEncode() { return pmesAct('encode_paper', (State.me && State.me.role === 'staff') || pmesCan('supervisor')); }
+// Per-user action switches (Command Center → PMES → Users → Actions). pmes_me returns the effective
+// value (role default with the user's override); the database enforces the same thing (pmes_allow).
+// roleOk is the old role rule, used only if the database has not sent access yet.
+function pmesAct(key, roleOk) {
+  const a = State.me && State.me.access && State.me.access.actions;
+  return (a && typeof a[key] === 'boolean') ? a[key] : !!roleOk;
+}
 function pmesOwnsStep(key) {
   const r = (State.me && State.me.role) || '';
   if (r === 'admin' || !STEP_OWNER[key]) return true;
@@ -736,7 +751,16 @@ const PMES_TABS = {
   supervisor: ['mywork', 'jobs', 'scan', 'schedule', 'more'],
   qa: ['mywork', 'jobs', 'scan', 'more'], qa_supervisor: ['mywork', 'jobs', 'scan', 'more'], qa_manager: ['mywork', 'jobs', 'scan', 'more'],
 };
-function pmesTabs() { return PMES_TABS[(State.me && State.me.role) || ''] || ['mywork', 'jobs', 'scan', 'schedule', 'more']; }
+function pmesTabs() {
+  const acc = State.me && State.me.access;
+  if (acc && Array.isArray(acc.tabs)) return acc.tabs;
+  return PMES_TABS[(State.me && State.me.role) || ''] || ['mywork', 'jobs', 'scan', 'schedule', 'more'];
+}
+function pmesHome() {
+  const acc = State.me && State.me.access, me = State.me || {};
+  if (acc && acc.home) return acc.home;
+  return me.role === 'operator' ? 'scan' : ['shift_head', 'production_engineer'].includes(me.role) ? 'schedule' : 'mywork';
+}
 function applyRoleToNav() {
   const tabs = pmesTabs();
   document.querySelectorAll('.tab-btn').forEach((b) => {
@@ -785,6 +809,9 @@ function renderUserChip() {
     conn.appendChild(chip);
   }
   chip.textContent = (State.me.name || State.me.email) + ' · ' + pmesRoleLabel(State.me.role);
+  chip.title = State.viewAs ? 'Previewing — tap to stop' : 'Sign out';
+  chip.onclick = State.viewAs ? () => pmesStopViewAs() : () => { if (confirm('Sign out of Production?')) pmesSignOut(); };
+  pmesViewAsBanner();
 }
 
 async function authGate() {
@@ -797,15 +824,132 @@ async function authGate() {
       + 'or has been deactivated. Ask a Production admin to add you (Command Center, or PMES Setup → Users).');
   }
   State.me = me;
+  State.realMe = me;
   document.querySelector('nav.tabbar').style.display = '';
+  // Command Center's "View in PMES" opens ?viewas=<email>; only a PMES admin can preview.
+  const va = new URLSearchParams(location.search).get('viewas');
+  if (va && me.role === 'admin') {
+    history.replaceState(null, '', location.pathname);
+    if (await pmesStartViewAs(va, true)) { bootstrap(); return; }
+  }
+  pmesEnterAsCurrent();
+  bootstrap();
+}
+// Lay the app out for State.me: tabs, More, landing screen (role default or per-user setting).
+function pmesEnterAsCurrent() {
   applyRoleToNav();
-  // Each role lands where they work: operators on Scan, the materials person on Materials.
-  // Phase 3: everyone lands on My work, except operators (Scan) and the shift head / engineer (Schedule).
-  const home = me.role === 'operator' ? 'scan' : ['shift_head', 'production_engineer'].includes(me.role) ? 'schedule' : 'mywork';
+  // Landing: operators on Scan, shift head / engineer on Schedule, everyone else My work — unless set per user.
+  let home = pmesHome();
+  if (!pmesTabs().includes(home)) home = pmesTabs()[0] || 'mywork';
   State.screen = home;
+  State.currentJobId = null;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.screen === home));
   renderUserChip();
-  bootstrap();
+}
+
+// ── View as (PMES admins) ───────────────────────────────────────────────────
+// The admin sees PMES exactly as that user: the database answers every read as them
+// (header x-pmes-view-as, honoured only on GET for a PMES admin — pmes_viewing_as()).
+// Nothing can be changed while previewing: reads go out as GET, every other request is stopped here,
+// and the database would refuse anyway (GET runs read-only; writes use the admin's own account).
+State.viewAs = null;
+const _pmesFetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+  if (State.viewAs) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    if (url.indexOf(PMES_CONFIG.supabaseUrl) === 0 && !/\/auth\/v1\//.test(url) && method !== 'GET' && method !== 'HEAD') {
+      return Promise.resolve(new Response(JSON.stringify({ message: 'Preview only — you are viewing PMES as ' + State.viewAs.email + '. Stop the preview to make changes.', code: 'PREVIEW' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    }
+  }
+  return _pmesFetch(input, init);
+};
+// Reads through rpc() must be GET while previewing (arrays and objects encoded for the URL).
+const _pmesRpc = sb.rpc.bind(sb);
+// Database functions that change data — refused while previewing (the database would refuse too).
+const PMES_WRITE_RPCS = new Set(['pmes_attach_job_order', 'pmes_board_request_approve', 'pmes_board_request_create', 'pmes_board_request_escalate', 'pmes_board_save', 'pmes_calendar_reset_week', 'pmes_calendar_save', 'pmes_capacity_mirror_modcraft', 'pmes_capacity_set', 'pmes_client_mat_add', 'pmes_client_mat_receive', 'pmes_component_mark', 'pmes_component_mark_paper', 'pmes_component_reject', 'pmes_component_remake', 'pmes_concern_raise', 'pmes_concern_resolve', 'pmes_cut_plan_adopt', 'pmes_cut_plan_save', 'pmes_delegate_create', 'pmes_delegate_revoke', 'pmes_jo_approve', 'pmes_jo_check', 'pmes_jo_return', 'pmes_job_handoff', 'pmes_mr_receive', 'pmes_offday_cancel', 'pmes_offday_decide', 'pmes_offday_request', 'pmes_output_confirm', 'pmes_output_delete', 'pmes_output_enter', 'pmes_pjo_handout', 'pmes_process_jos_create', 'pmes_qa_inspect', 'pmes_reject_link_plan', 'pmes_reject_verify', 'pmes_schedule_approve', 'pmes_schedule_save', 'pmes_service_capacity_seed', 'pmes_service_capacity_set', 'pmes_view_as_log', 'pmes_flag_outliers', 'pmes_route_balance_metrics']);
+sb.rpc = function (fn, args, opts) {
+  if (!State.viewAs) return _pmesRpc(fn, args, opts);
+  if (PMES_WRITE_RPCS.has(fn)) return Promise.resolve({ data: null, error: { message: 'Preview only — you are viewing PMES as ' + State.viewAs.email + '. Stop the preview to make changes.', code: 'PREVIEW' } });
+  const enc = {};
+  Object.entries(args || {}).forEach(([k, v]) => {
+    if (v === undefined) return;
+    enc[k] = Array.isArray(v) ? '{' + v.map((x) => (x === null ? 'NULL' : '"' + String(x).replace(/(["\\])/g, '\\$1') + '"')).join(',') + '}'
+      : (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+  });
+  return _pmesRpc(fn, enc, Object.assign({}, opts, { get: true }));
+};
+function _pmesSetViewHeader(email) {
+  const h = sb.rest && sb.rest.headers;
+  if (!h) return false;
+  if (typeof h.set === 'function') { if (email) h.set('x-pmes-view-as', email); else h.delete('x-pmes-view-as'); }
+  else if (email) h['x-pmes-view-as'] = email; else delete h['x-pmes-view-as'];
+  return true;
+}
+async function pmesStartViewAs(email, quiet) {
+  const real = State.realMe;
+  email = String(email || '').trim().toLowerCase();
+  if (!real || real.role !== 'admin') { toast('Only a PMES admin can view PMES as another user.', 'error'); return false; }
+  if (!email || email === real.email) return false;
+  if (State.viewAs) { _pmesSetViewHeader(null); State.viewAs = null; State.me = real; }   // switching user
+  const { error: le } = await _pmesRpc('pmes_view_as_log', { p_email: email });   // audit first, as the admin
+  if (le) { toast('Could not start the preview: ' + le.message, 'error'); return false; }
+  if (!_pmesSetViewHeader(email)) { toast('This browser could not start the preview.', 'error'); return false; }
+  State.viewAs = { email };
+  const { data: me, error } = await sb.rpc('pmes_me');
+  if (error || !me || me.email !== email || !me.viewing_as) {
+    _pmesSetViewHeader(null); State.viewAs = null;
+    toast('Could not preview ' + email + (error ? ': ' + error.message : ' — the database did not switch (is the access update installed?).'), 'error');
+    return false;
+  }
+  State.viewAs = { email, name: me.name || email };
+  State.me = me;
+  pmesEnterAsCurrent();
+  if (!quiet) render();
+  if (!quiet) toast('Viewing PMES as ' + (me.name || email) + '. Changes are off until you stop.', 'success');
+  return true;
+}
+function pmesStopViewAs() {
+  if (!State.viewAs) return;
+  _pmesSetViewHeader(null);
+  State.viewAs = null;
+  State.me = State.realMe;
+  pmesEnterAsCurrent();
+  render();
+  toast('Back to your own view.', 'success');
+}
+function pmesViewAsBanner() {
+  let b = document.getElementById('viewAsBanner');
+  if (!State.viewAs) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'viewAsBanner';
+    b.style.cssText = 'position:sticky;top:0;z-index:50;background:#7c2d12;color:#fff;padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+    const top = document.querySelector('header.topbar');
+    top.parentNode.insertBefore(b, top.nextSibling);
+  }
+  const m = State.me || {}, acc = m.access || {};
+  b.innerHTML = '<span>👁 Viewing as <strong>' + escapeHtml(m.name || m.email) + '</strong> · ' + escapeHtml(pmesRoleLabel(m.role))
+    + (m.company ? ' · ' + escapeHtml(m.company) : '') + (acc.custom ? ' · <em>custom access</em>' : '')
+    + ' — read-only preview, nothing can be changed.</span>'
+    + '<button class="btn sm" style="margin-left:auto;background:#fff;color:#7c2d12" onclick="pmesViewAsPicker()">Switch user</button>'
+    + '<button class="btn sm" style="background:#fff;color:#7c2d12" onclick="pmesStopViewAs()">Stop preview</button>';
+}
+// Picker (sheet) listing everyone the admin may preview.
+async function pmesViewAsPicker() {
+  const { data, error } = await _pmesRpcAsAdmin('pmes_view_as_list');
+  if (error) return toast('Could not load users: ' + error.message, 'error');
+  const rows = (data || []).map((u) => '<button class="btn outline block" style="text-align:left;margin-bottom:6px" onclick="closeSheet();pmesStartViewAs(\'' + escapeHtml(u.email) + '\')">'
+    + '<strong>' + escapeHtml(u.name || u.email) + '</strong> <span class="small">· ' + escapeHtml(pmesRoleLabel(u.role)) + (u.company ? ' · ' + escapeHtml(u.company) : '')
+    + (u.custom ? ' · custom access' : '') + '</span></button>').join('');
+  openSheet('<h2>View PMES as…</h2><p class="small" style="margin-bottom:10px">See the app exactly as this person does — their tabs, My work and jobs. Read-only; nothing can be changed while previewing. Each preview is logged.</p>'
+    + (rows || '<p class="small">No other active users.</p>'));
+}
+// The picker list is admin-only, so ask without the preview header even while previewing.
+async function _pmesRpcAsAdmin(fn, args) {
+  const was = State.viewAs; if (was) { _pmesSetViewHeader(null); State.viewAs = null; }
+  try { return await _pmesRpc(fn, args || {}); } finally { if (was) { State.viewAs = was; _pmesSetViewHeader(was.email); } }
 }
 
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') renderSignIn(); });

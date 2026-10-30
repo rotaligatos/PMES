@@ -34,7 +34,7 @@ const BoardsData = {
 };
 
 // Boards are inspected by QA (Rommel 2026-10-19); Receiving only counts them in.
-function _bdCanInspect() { return pmesIsQa(); }   // Phase 2: board inspection is QA's
+function _bdCanInspect() { return pmesAct('qa_inspect', pmesIsQa()); }   // Phase 2: board inspection is QA's
 function _bdCanRun() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
 // The materials checker may RUN the optimizer to see whether what arrived is enough (Rommel 2026-10-19), and report it
 // to office staff; saving a plan and requesting extra stay with office staff and supervisors.

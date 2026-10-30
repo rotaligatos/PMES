@@ -125,11 +125,11 @@ function pbDraw() {
 /* ---- Per-JO header with schedule actions (shared by Gantt) ---- */
 function pbJobHead(J) {
   const ss = J.job.schedule_status || 'none', sp = SCHED_STATUS[ss] || SCHED_STATUS.none;
-  const canPlan = pmesCan('production_engineer');
+  const canPlan = pmesAct('schedule_plan', pmesCan('production_engineer'));
   const hasDates = J.pjos.filter((p) => p.planned_pieces > 0 && p.status !== 'done').every((p) => p.planned_start);
   const me = String((State.me && State.me.email) || '').toLowerCase();
   // Two approvals: a supervisor, then a manager (different people). The database enforces the same.
-  const apBtn = ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
+  const apBtn = !pmesAct('schedule_approve', true) ? '' : ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
     : ss === 'supervisor_ok' && pmesCan('manager') && String(J.job.schedule_supervisor_by || '').toLowerCase() !== me ? 'Approve (manager)' : '';
   return `<div class="flex-between" style="gap:8px;flex-wrap:wrap;">
       <div><strong class="mono" style="cursor:pointer" onclick="goToJob('${J.job.id}')">${escapeHtml(J.job.job_code)}</strong> ${testTag(J.job)}
@@ -266,9 +266,9 @@ function pbGantt(jobs) {
   const row = (J, t) => {
     const ss = J.job.schedule_status || 'none', sp = SCHED_STATUS[ss] || SCHED_STATUS.none, approved = ss === 'approved';
     const ap = J.job.schedule_supervisor_at ? 'Supervisor: ' + (J.job.schedule_supervisor_by || '') + ' ' + fmtDate(J.job.schedule_supervisor_at) + (ss === 'approved' && J.job.schedule_approved_at ? ' · Manager: ' + (J.job.schedule_approved_by || '') + ' ' + fmtDate(J.job.schedule_approved_at) : '') : '';
-    const canPlan = pmesCan('production_engineer'), me = String((State.me && State.me.email) || '').toLowerCase();
+    const canPlan = pmesAct('schedule_plan', pmesCan('production_engineer')), me = String((State.me && State.me.email) || '').toLowerCase();
     const hasDates = J.pjos.filter((p) => p.planned_pieces > 0 && p.status !== 'done').every((p) => p.planned_start);
-    const apBtn = ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
+    const apBtn = !pmesAct('schedule_approve', true) ? '' : ss === 'draft' && pmesCan('supervisor') && !pmesCan('manager') ? 'Approve (supervisor)'
       : ss === 'supervisor_ok' && pmesCan('manager') && String(J.job.schedule_supervisor_by || '').toLowerCase() !== me ? 'Approve (manager)' : '';
     const dot = { gray: 'var(--text-dim)', amber: 'var(--amber)', blue: '#1f5fa8', green: 'var(--green)' }[sp[0]] || 'var(--text-dim)';
     const who = J.client + (J.project ? ' — ' + J.project : '') + (J.job.quotation_serial ? ' · ' + J.job.quotation_serial : '');
@@ -323,7 +323,7 @@ function pbDelayImpacts(jobs) {
 function pbDelayLine(J, imp) {
   if (!imp) return '';
   if (imp.suppressed) return `<div class="g-alert kept">Original plan kept by ${escapeHtml(imp.last.decided_by)} ${fmtDate(imp.last.decided_at)} despite the delay from ${escapeHtml(imp.causes.join(', '))}${imp.last.note ? ' — ' + escapeHtml(imp.last.note) : ''}.</div>`;
-  const can = pmesCan('production_engineer');
+  const can = pmesAct('schedule_plan', pmesCan('production_engineer'));
   return `<div class="g-alert">⚠ Delayed by <b>${escapeHtml(imp.causes.join(', '))}</b> — at today's progress this Job Order would finish <b>${fmtDay(imp.projEnd)}</b> instead of <b>${fmtDay(imp.planEnd)}</b> (+${imp.days} working day${imp.days === 1 ? '' : 's'}). Change the plan or keep the original?
     ${can ? `<button class="btn primary sm" onclick="pbDelayDecide('${J.job.id}','change')">Change plan</button> <button class="btn outline sm" onclick="pbDelayDecide('${J.job.id}','keep')">Keep original plan</button>` : '<span class="small">A production engineer, supervisor or manager decides.</span>'}</div>`;
 }
@@ -403,7 +403,7 @@ function pbToday(jobs) {
 }
 
 function pbHandoutBtn(J, p) {
-  if (!pmesCan('supervisor') || p.status === 'done') return '';   // Rommel 2026-10-19: the supervisor assigns the operators
+  if (!pmesAct('handout_pjo', pmesCan('supervisor')) || p.status === 'done') return '';   // Rommel 2026-10-19: the supervisor assigns the operators
   if (J.job.schedule_status !== 'approved') return '<span class="small">Hand-out after the schedule is approved</span>';
   return `<button class="btn ${p.handed_out_at ? 'outline' : 'primary'} sm" onclick="pbHandout('${p.id}')">${p.handed_out_at ? 'Change hand-out' : 'Hand out'}</button>`;
 }

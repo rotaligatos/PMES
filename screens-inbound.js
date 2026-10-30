@@ -13,7 +13,7 @@ const InboundData = {
   async openConcernJobs() { const { data, error } = await sb.from('pmes_material_concerns').select('job_id').eq('status', 'open'); if (error) return {}; const m = {}; (data || []).forEach((r) => { m[r.job_id] = (m[r.job_id] || 0) + 1; }); return m; },
   async rpc(fn, args) { const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
 };
-function _inCanCheck() { return (State.me && State.me.role === 'materials') || pmesCan('supervisor'); }
+function _inCanCheck() { return pmesAct('receive_materials', (State.me && State.me.role === 'materials') || pmesCan('supervisor')); }
 function _inCanResolve() { return (State.me && State.me.role === 'staff') || pmesCan('supervisor'); }
 function _inCanRaise() { return (State.me && ['materials', 'staff'].includes(State.me.role)) || pmesCan('supervisor'); }
 const IN_COND = { ok: ['green', 'OK'], short: ['amber', 'Short'], damaged: ['red', 'Damaged'], wrong_item: ['red', 'Wrong item'] };

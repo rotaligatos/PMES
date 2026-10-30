@@ -6,7 +6,7 @@
    Database: pmes_qa_inspect (MRF lines + client items), pmes_board_save (QA), pmes_job_material_state
    (complete = received in full AND passed by QA). */
 
-function _qaCan() { return pmesIsQa(); }   // Phase 2: QA's step only (production supervisors see it read-only)
+function _qaCan() { return pmesAct('qa_inspect', pmesIsQa()); }   // Phase 2: QA's step only (production supervisors see it read-only)
 
 /* ---- QA inspection of received materials ---- */
 function renderQaInspect(job, mrs, client) {
@@ -97,7 +97,7 @@ async function renderAssignCard(job, el) {
   } catch (e) { el.innerHTML = ''; return; }
   if (!pjos.length) { el.innerHTML = ''; return; }
   State.assignCtx = { job, pjos, users };
-  const sup = pmesCan('supervisor'), sched = job.schedule_status === 'approved';
+  const sup = pmesAct('handout_pjo', pmesCan('supervisor')), sched = job.schedule_status === 'approved';
   el.innerHTML = `<div class="card"><div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Operators by process</h2>
       <span class="small">${pjos.filter((p) => (p.operators || []).length || p.machine_name).length} of ${pjos.length} assigned</span></div>
     <p class="small" style="margin-top:6px;">The supervisor assigned to the job enters the machine and operator(s) for each process; the process JO then goes to them.${sched ? '' : ' <strong>The loading schedule must be approved first</strong> (Schedule page).'}</p>

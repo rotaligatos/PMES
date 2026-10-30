@@ -223,10 +223,11 @@ function _drawJobTabInner() {
 function renderJoReviewCard(job, reviews) {
   const st = job.jo_review_status || 'received';
   const role = (State.me && State.me.role) || '';
-  const canCheck = ['staff', 'supervisor', 'manager', 'admin'].includes(role) && st !== 'approved';
+  const canCheck = pmesAct('jo_check', ['staff', 'supervisor', 'manager', 'admin'].includes(role)) && st !== 'approved';
   // A delegate (pmes_delegations) holds the manager's approval authority for the period.
   const acting = State.me && State.me.acting_for;
-  const isSup = pmesCan('supervisor') || !!acting, isMgr = pmesCan('manager') || !!acting;
+  const canAp = pmesAct('jo_approve', true);   // per-user switch can only block approval
+  const isSup = (pmesCan('supervisor') || !!acting) && canAp, isMgr = (pmesCan('manager') || !!acting) && canAp;
   const who = (e, n) => escapeHtml(n || e || '');
   // Materials status comes from the MRF (the materials person's receipts), not from a tick.
   const ms = State.jobMaterialState || { state: 'no_mrf' };
@@ -434,7 +435,7 @@ function renderMRCard(job, mrs) {
 function renderMRBlocks(mrs) {
   // Rommel 2026-09-27: the materials person checks every item on its own — OK / Short / Damaged,
   // a note, and a photo for damaged ones. The database (pmes_mr_receive) enforces the same rules.
-  const canReceive = (State.me && State.me.role === 'materials') || pmesCan('supervisor');
+  const canReceive = pmesAct('receive_materials', (State.me && State.me.role === 'materials') || pmesCan('supervisor'));
   const pill = (st) => { const c = { authorized: 'blue', partially_issued: 'amber', issued: 'amber', partially_received: 'amber', received: 'green', closed: 'gray', cancelled: 'red' }[st] || 'gray';
     const t = { authorized: 'Waiting for KEYSTONE to process', partially_issued: 'Warehouse partly processed', issued: 'Processed — check each item', partially_received: 'Partly received', received: 'Received' }[st] || st;
     return '<span class="badge ' + c + '">' + escapeHtml(t) + '</span>'; };
@@ -774,7 +775,7 @@ async function renderPackingBlock(job, components) {
 
   const completeCount = components.filter((c) => c.status === 'complete').length;
 
-  const qa = pmesIsQa();   // Phase 2: step 5 (packing list, count, hand-off) is QA's
+  const qa = pmesAct('handoff', pmesIsQa());   // Phase 2: step 5 (packing list, count, hand-off) is QA's
   if (!pl) {
     el.innerHTML = `
       <p class="small">${completeCount} of ${components.length} components marked complete.</p>

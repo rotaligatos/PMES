@@ -37,7 +37,7 @@ function showNotDone(code) { PieceState.stage = code; PieceState.notDone = true;
 function renderPieceMatrix(job, stages, components, done) {
   if (!components.length) return '';
   const m = _doneMap(done), codes = stages.map((s) => s.stage_code);
-  const canMark = pmesCan('operator') && joApproved(job);
+  const canMark = pmesAct('mark_pieces', pmesCan('operator')) && joApproved(job);
   const q = PieceState.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rows = components.filter((c) => {
     const L = _pieceLabel(c), txt = [L.part, L.name, L.size, c.full_barcode_id, c.scan_code].join(' ').toLowerCase();

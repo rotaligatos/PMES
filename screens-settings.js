@@ -136,70 +136,37 @@ async function endDelegation(id) {
   renderDelegations();
 }
 
-/* ---- Production users (PMES admin). Same list the Command Center manages. ---- */
-const PMES_ROLES = ['materials', 'staff', 'operator', 'shift_head', 'production_engineer', 'supervisor', 'manager', 'qa', 'qa_supervisor', 'qa_manager', 'admin'];
+/* ---- Production users (PMES admin). Accounts, roles, screens and actions are managed in the
+   Command Center (PMES → Users) — one place for every app's access (Rommel 2026-10-30). Here an admin
+   sees the list and can preview PMES as any user (read-only). ---- */
+const PMES_CC_URL = 'https://rotaligatos.github.io/modcraft-app/command-center.html';
+function pmesCcLink(email) { return PMES_CC_URL + '?tab=pmes' + (email ? '&edit=' + encodeURIComponent(email) : ''); }
 
 async function renderPmesUsers() {
   const box = document.getElementById('pmesUsersCard');
   if (!box) return;
-  const { data, error } = await sb.from('pmes_users').select('*').order('active', { ascending: false }).order('name');
+  const { data, error } = await sb.from('pmes_users').select('email,name,role,company,stations,active,access').order('active', { ascending: false }).order('name');
   if (error) { box.innerHTML = `<h2>Production users</h2><div class="callout blocked">Could not load: ${escapeHtml(error.message)}</div>`; return; }
-  const stageOpts = (sel) => State.stageTypes.map((st) =>
-    `<label style="display:inline-flex;gap:4px;margin:2px 8px 2px 0;font-size:12px"><input type="checkbox" value="${st.code}" ${sel.includes(st.code) ? 'checked' : ''}>${st.code}</label>`).join('');
+  const custom = (a) => a && (Array.isArray(a.tabs) || Array.isArray(a.more) || a.home || Object.keys(a.actions || {}).length);
+  const realAdmin = State.realMe && State.realMe.role === 'admin';
   box.innerHTML = `
-    <h2>Production users (${data.filter((u) => u.active).length} active)</h2>
-    <p class="small">Operators log work only at the stations ticked (none ticked = any station). Changes are logged.</p>
-    <table class="comp-table">
-      <thead><tr><th>Name / email</th><th>Role</th><th>Stations</th><th>Active</th><th></th></tr></thead>
+    <div class="flex-between" style="gap:8px;flex-wrap:wrap;"><h2 class="mb-0">Production users (${data.filter((u) => u.active).length} active)</h2>
+      <a class="btn outline sm" href="${pmesCcLink()}" target="_blank" rel="noopener">Manage in Command Center ↗</a></div>
+    <p class="small" style="margin-top:6px;">Add people, change roles, and set each person's screens and actions in the <strong>Command Center</strong>.
+      Use <strong>View as</strong> to see PMES exactly as that person does (read-only, logged).</p>
+    <table class="comp-table" style="margin-top:8px;">
+      <thead><tr><th>Name / email</th><th>Role</th><th>Company</th><th>Access</th><th></th></tr></thead>
       <tbody>
         ${data.map((u) => `
-          <tr data-email="${escapeHtml(u.email)}" style="${u.active ? '' : 'opacity:.55'}">
-            <td><input class="pu-name" value="${escapeHtml(u.name)}" style="width:100%"><div class="small mono">${escapeHtml(u.email)}</div></td>
-            <td><select class="pu-role">${PMES_ROLES.map((r) => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${pmesRoleLabel(r)}</option>`).join('')}</select></td>
-            <td class="pu-stations">${stageOpts(u.stations || [])}</td>
-            <td><input type="checkbox" class="pu-active" ${u.active ? 'checked' : ''}></td>
-            <td><button class="btn outline" onclick="savePmesUser(this)">Save</button></td>
+          <tr style="${u.active ? '' : 'opacity:.55'}">
+            <td><strong>${escapeHtml(u.name || '—')}</strong><div class="small mono">${escapeHtml(u.email)}</div></td>
+            <td>${escapeHtml(pmesRoleLabel(u.role))}${u.role === 'operator' && (u.stations || []).length ? '<div class="small">' + escapeHtml(u.stations.join(', ')) + '</div>' : ''}</td>
+            <td class="small">${escapeHtml(u.company || '—')}</td>
+            <td>${!u.active ? '<span class="badge gray">Inactive</span>' : custom(u.access) ? '<span class="badge amber">Custom</span>' : '<span class="badge gray">Role default</span>'}</td>
+            <td style="white-space:nowrap">
+              ${realAdmin && u.active && u.email !== State.realMe.email ? `<button class="btn primary sm" onclick="pmesStartViewAs('${escapeHtml(u.email)}')">View as</button>` : ''}
+              <a class="btn outline sm" href="${pmesCcLink(u.email)}" target="_blank" rel="noopener">Edit ↗</a></td>
           </tr>`).join('')}
       </tbody>
-    </table>
-    <h2 style="margin-top:14px">Add a user</h2>
-    <input id="puNewEmail" placeholder="company email" style="margin-bottom:6px">
-    <input id="puNewName" placeholder="name" style="margin-bottom:6px">
-    <select id="puNewRole">${PMES_ROLES.map((r) => `<option>${r}</option>`).join('')}</select>
-    <div id="puNewStations" style="margin:6px 0">${stageOpts([])}</div>
-    <button class="btn primary block" onclick="addPmesUser()">Add user</button>`;
-}
-
-function _puStations(el) {
-  return [...el.querySelectorAll('input[type=checkbox]:checked')].map((c) => c.value);
-}
-
-async function savePmesUser(btn) {
-  const tr = btn.closest('tr');
-  const email = tr.dataset.email;
-  if (email === State.me.email && tr.querySelector('.pu-role').value !== 'admin'
-      && !confirm('You are removing your own admin role. Continue?')) return;
-  const { error } = await sb.from('pmes_users').update({
-    name: tr.querySelector('.pu-name').value.trim(),
-    role: tr.querySelector('.pu-role').value,
-    stations: _puStations(tr.querySelector('.pu-stations')),
-    active: tr.querySelector('.pu-active').checked,
-  }).eq('email', email);
-  if (error) return toast('Could not save: ' + error.message, 'error');
-  toast('Saved ' + email, 'success');
-  renderPmesUsers();
-}
-
-async function addPmesUser() {
-  const email = document.getElementById('puNewEmail').value.trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('Enter a valid email.', 'error');
-  const { error } = await sb.from('pmes_users').insert({
-    email,
-    name: document.getElementById('puNewName').value.trim(),
-    role: document.getElementById('puNewRole').value,
-    stations: _puStations(document.getElementById('puNewStations')),
-  });
-  if (error) return toast(error.code === '23505' ? 'That email is already on the list.' : 'Could not add: ' + error.message, 'error');
-  toast('Added ' + email, 'success');
-  renderPmesUsers();
+    </table>`;
 }
