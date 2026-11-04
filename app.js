@@ -700,21 +700,35 @@ function pmesAct(key, roleOk) {
   const a = State.me && State.me.access && State.me.access.actions;
   return (a && typeof a[key] === 'boolean') ? a[key] : !!roleOk;
 }
+// Rommel 2026-11-04: a step is this person's when their role does it OR they were given one of its
+// actions (Command Center). Steps that aren't theirs are not shown at all — no "view" tabs.
 function pmesOwnsStep(key) {
   const r = (State.me && State.me.role) || '';
   if (r === 'admin' || !STEP_OWNER[key]) return true;
-  if (key === 'qa_in' || key === 'release') return pmesIsQa();
-  if (key === 'receive') return ['materials', 'supervisor', 'manager'].includes(r);
-  if (key === 'review') return ['staff', 'supervisor', 'manager'].includes(r);
-  if (key === 'production') return ['operator', 'shift_head', 'production_engineer', 'staff', 'supervisor', 'manager'].includes(r);
+  if (key === 'qa_in') return pmesAct('qa_inspect', pmesIsQa());
+  if (key === 'release') return pmesAct('handoff', pmesIsQa());
+  if (key === 'receive') return pmesAct('receive_materials', ['materials', 'supervisor', 'manager'].includes(r));
+  if (key === 'review') return ['supervisor', 'manager'].includes(r) || pmesAct('jo_check', r === 'staff') || pmesAct('jo_return', false);
+  if (key === 'production') return ['operator', 'shift_head', 'production_engineer', 'staff', 'supervisor', 'manager'].includes(r)
+    || ['mark_pieces', 'encode_paper', 'handout_pjo', 'schedule_plan', 'reject_verify'].some((a) => pmesAct(a, false));
   return false;
 }
+// The job's Overview tab (full flow, progress of every process): for those who run or oversee the job.
+function pmesSeesOverview() { return (State.me && State.me.role === 'admin') || pmesCan('shift_head') || pmesIsQa('supervisor'); }
+// Someone whose role doesn't work the floor but was given piece marking (e.g. Receiving who also does
+// HPL): on the Production tab they see only their own stages.
+function pmesFloorLimited() {
+  const r = (State.me && State.me.role) || '';
+  return r !== 'admin' && r !== 'staff' && !pmesCan('operator');
+}
 // The 5-step strip, compact (lists, job header). onClick: a function name taking the step key, or none.
+// Only this person's steps are clickable; the others are shown for information.
 function pmesFlowStrip(steps, onClick) {
   return '<div class="mw-strip">' + (steps || []).map((s) => {
     const tip = s.n + ' ' + s.title + ' · ' + s.dept + ' · ' + s.team + ' — ' + (s.note || '');
-    return '<span class="mw-seg ' + s.state + (onClick ? ' click' : '') + (pmesOwnsStep(s.key) ? ' mine' : '') + '" title="' + escapeHtml(tip) + '"'
-      + (onClick ? ' onclick="event.stopPropagation();' + onClick + '(\'' + s.key + '\')"' : '') + '>'
+    const click = onClick && pmesOwnsStep(s.key);
+    return '<span class="mw-seg ' + s.state + (click ? ' click' : '') + (pmesOwnsStep(s.key) ? ' mine' : '') + '" title="' + escapeHtml(tip) + '"'
+      + (click ? ' onclick="event.stopPropagation();' + onClick + '(\'' + s.key + '\')"' : '') + '>'
       + '<span class="mw-seg-bar"></span><span class="mw-seg-l">' + s.n + ' ' + escapeHtml(s.title) + '</span></span>';
   }).join('') + '</div>';
 }
@@ -739,6 +753,8 @@ function pmesStations() {
 function pmesStageAllowed(code) {
   if (pmesCan('supervisor')) return true;
   const st = pmesStations();
+  // Given piece marking without a floor role: only the stages set for them, none if none are set.
+  if (pmesFloorLimited()) return st.includes(code);
   return !st.length || st.includes(code);
 }
 // Phase 3 (2026-10-29): each role sees only the tabs for its own work (plan: "What each person sees").

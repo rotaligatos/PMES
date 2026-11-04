@@ -36,12 +36,15 @@ function showNotDone(code) { PieceState.stage = code; PieceState.notDone = true;
 
 function renderPieceMatrix(job, stages, components, done) {
   if (!components.length) return '';
-  const m = _doneMap(done), codes = stages.map((s) => s.stage_code);
+  // Rommel 2026-11-04: someone given marking for a few stages only (pmesFloorLimited) sees just those columns and pieces.
+  const limited = pmesFloorLimited();
+  const m = _doneMap(done), codes = stages.map((s) => s.stage_code).filter((c) => !limited || pmesStageAllowed(c));
   const canMark = pmesAct('mark_pieces', pmesCan('operator')) && joApproved(job);
   const q = PieceState.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rows = components.filter((c) => {
     const L = _pieceLabel(c), txt = [L.part, L.name, L.size, c.full_barcode_id, c.scan_code].join(' ').toLowerCase();
     if (!q.every((w) => txt.includes(w))) return false;
+    if (limited && !_pieceRoute(c, job).some((x) => codes.includes(x))) return false;
     if (PieceState.stage) {
       const onRoute = _pieceRoute(c, job).includes(PieceState.stage);
       if (!onRoute) return false;

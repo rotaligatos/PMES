@@ -9,6 +9,10 @@ const JOB_TABS = [
   ['production', '4 Production'], ['release', '5 QA & release'],
 ];
 const JOB_TAB_ALIAS = { materials: 'receive', cutting: 'review', parts: 'production', packing: 'release' };
+// Rommel 2026-11-04: only the tabs this person works on are shown (Overview for those who run the job).
+function jobTabVisible(k) { k = JOB_TAB_ALIAS[k] || k; return k === 'overview' ? pmesSeesOverview() : (k === 'parts' ? pmesOwnsStep('production') : pmesOwnsStep(k)); }
+function jobTabsVisible() { return JOB_TABS.filter(([k]) => jobTabVisible(k)); }
+function jobTabFirst() { const v = jobTabsVisible(); return v.length ? v[0][0] : 'overview'; }
 
 async function renderJobDetail(main) {
   const jobId = State.currentJobId;
@@ -34,7 +38,8 @@ async function renderJobDetail(main) {
     canCut: job.job_active && materialsReady,
   };
   if (State.jobTabNext) State.jobTab = State.jobTabNext;
-  else if (State.jdJobId !== jobId) State.jobTab = 'overview';
+  else if (State.jdJobId !== jobId) State.jobTab = jobTabFirst();
+  if (!jobTabVisible(State.jobTab)) State.jobTab = jobTabFirst();
   if (State.jdJobId !== jobId && !State.jobTabNext) { PieceState.stage = ''; PieceState.notDone = false; PieceState.q = ''; PieceState.sel = {}; }
   State.jdJobId = jobId; State.jobTabNext = null;
 
@@ -51,7 +56,7 @@ async function renderJobDetail(main) {
       <span class="mono">${escapeHtml(job.job_code)}</span> ${testTag(job)} ${badgeForDest(job.destination_company)} ${payTag}
     </h1>
     <p class="page-sub">${escapeHtml(mo.client || '')}${mo.project ? ' — ' + escapeHtml(mo.project) : ''}${mo.client || mo.project ? ' · ' : ''}${job.quotation_serial ? 'Quotation ' + escapeHtml(job.quotation_serial) : 'No quotation reference'} · Released ${fmtDate(job.created_at)}</p>
-    ${!job.job_active ? `<div class="callout blocked"><strong>Inactive.</strong> KEYSTONE has not released this job (payment not met or not vouched).</div>` : ''}
+    ${!job.job_active ? `<div class="callout blocked" id="jdInactive"><strong>Inactive.</strong> KEYSTONE has not released this job (payment not met or not vouched).</div>` : ''}
     <div id="jdStrip" style="margin:4px 0 2px;"></div>
     <div class="subtabs" id="jdTabs"></div>
     <div id="jdBody"></div>`;
@@ -64,9 +69,14 @@ async function renderJobDetail(main) {
     _jdStripVisibility();
   });
 }
-function _jdStripVisibility() { const el = document.getElementById('jdStrip'); if (el) el.style.display = State.jobTab === 'overview' ? 'none' : ''; }
+// The strip and its "Waiting on…" line show on every tab except Overview (which has the full version).
+// The red "Inactive" callout shows only on Overview — elsewhere the Waiting on line already says it.
+function _jdStripVisibility() {
+  const el = document.getElementById('jdStrip'); if (el) el.style.display = State.jobTab === 'overview' ? 'none' : '';
+  const ia = document.getElementById('jdInactive'); if (ia) ia.style.display = State.jobTab === 'overview' ? '' : 'none';
+}
 
-function setJobTab(t) { State.jobTab = JOB_TAB_ALIAS[t] || t; drawJobTab(); }
+function setJobTab(t) { t = JOB_TAB_ALIAS[t] || t; if (!jobTabVisible(t)) return; State.jobTab = t; drawJobTab(); }
 
 function _jobTabFlag(t) {
   const d = State.jd, j = d.job, mrs = State.jobMRs || [];
@@ -78,19 +88,18 @@ function _jobTabFlag(t) {
   return '';
 }
 
-function drawJobTab() {
-  _drawJobTabInner();
-  const t = State.jobTab, body = document.getElementById('jdBody');
-  if (body && STEP_OWNER[t] && !pmesOwnsStep(t)) body.insertAdjacentHTML('afterbegin', '<div class="callout info" style="margin-bottom:10px;"><strong>View only.</strong> This step belongs to ' + escapeHtml(STEP_OWNER[t]) + '. You can see where it stands; the people who own it act on it.</div>');
-}
+function drawJobTab() { _drawJobTabInner(); }
 function _drawJobTabInner() {
   const d = State.jd; if (!d) return;
   const tabs = document.getElementById('jdTabs'), body = document.getElementById('jdBody');
   if (!tabs || !body) return;
-  tabs.innerHTML = JOB_TABS.map(([k, l]) => {
+  if (!jobTabVisible(State.jobTab)) State.jobTab = jobTabFirst();
+  const vis = jobTabsVisible();
+  // One tab only (e.g. Receiving): no tab bar, the page is just that step.
+  tabs.style.display = vis.length > 1 ? '' : 'none';
+  tabs.innerHTML = vis.map(([k, l]) => {
     const f = _jobTabFlag(k);
-    const ro = !pmesOwnsStep(k);
-    return `<button class="${State.jobTab === k ? 'on' : ''}${ro ? ' ro' : ''}" onclick="setJobTab('${k}')" title="${ro ? 'View only — ' + escapeHtml(STEP_OWNER[k] || '') : ''}">${l}${ro ? ' <span class="ro-tag">view</span>' : ''}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
+    return `<button class="${State.jobTab === k ? 'on' : ''}" onclick="setJobTab('${k}')">${l}${f ? ' <span class="subtab-flag">' + f + '</span>' : ''}</button>`;
   }).join('');
   _jdStripVisibility();
   const { job, stages, components, materials, readiness, joReviews, outputs, machines, route, canCut, materialsReady, done } = d;
@@ -133,9 +142,9 @@ function _drawJobTabInner() {
               <div class="small">${recv} / ${req} ${escapeHtml(m.unit)} received${m.sourcing ? ' · ' + m.sourcing.replace('_', ' ') : ''}</div></div>
               ${r && r.line_fulfilled ? '<span class="badge green">Complete</span>' : '<span class="badge amber">Partial</span>'}</div>
             <div style="background:#e4e9ee;border-radius:4px;height:6px;margin-top:8px;overflow:hidden;"><div style="background:${r && r.line_fulfilled ? 'var(--green)' : 'var(--amber)'};height:100%;width:${pct}%;"></div></div>
-            <button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button></div>`;
-        }).join('') : '<p class="small" style="margin-top:8px;">No materials specified yet for this job.</p>'}
-        <button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button></div>`;
+            ${pmesOwnsStep('receive') ? `<button class="btn outline sm" style="margin-top:8px;" onclick="openReceiveMaterialSheet('${m.id}','${job.id}')">+ Log receipt</button>` : ''}</div>`;
+        }).join('') : '<p class="small" style="margin-top:8px;"><strong>Nothing to receive for this job</strong> — no MRF and no materials listed.</p>'}
+        ${(State.me && ['staff', 'admin'].includes(State.me.role)) || pmesCan('supervisor') ? `<button class="btn secondary sm" style="margin-top:12px;" onclick="openAddJobMaterialSheet('${job.id}')">+ Add required material</button>` : ''}</div>`;
     if (document.getElementById('jdInbound')) renderInboundCards(job, document.getElementById('jdInbound'), 'receive');
   }
 
@@ -156,6 +165,21 @@ function _drawJobTabInner() {
     renderInboundCards(job, document.getElementById('jdConcerns'), 'concerns');
     if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'), 'plan').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const el = a && document.getElementById(a); if (el) el.scrollIntoView({ block: 'start' }); });
     else document.getElementById('boardsBlock').innerHTML = '<div class="card"><p class="small">No cutting layout on this job — it did not come from a Modcraft cutting list.</p></div>';
+  }
+
+  else if (t === 'production' && pmesFloorLimited()) {
+    // Given piece marking for some stages only (e.g. Receiving who also does HPL): just those stages.
+    const mine = stages.filter((s) => pmesStageAllowed(s.stage_code));
+    body.innerHTML = !joApproved(job) ? '<div class="callout info">Nothing to do yet — the Job Order has not been approved for the line.</div>'
+      : !mine.length ? '<div class="card"><p class="small">This job has none of your processes.</p></div>'
+      : `<div class="card"><h2>Your processes</h2>
+        ${mine.map((s) => { const stageType = State.stageTypes.find((x) => x.code === s.stage_code);
+          const cls = s.status === 'complete' ? 'complete' : s.status === 'delayed' ? 'delayed' : (s.status === 'in_progress' || s.status === 'queued') ? 'current' : '';
+          return `<div class="stage-item ${cls}"><div class="stage-num">${s.stage_code}</div><div class="stage-body">
+              <div class="stage-name">${stageType ? escapeHtml(stageType.label) : s.stage_code}</div>
+              <div class="stage-meta">${badgeForStageStatus(s.status)}</div>${progLine(s)}</div>
+            ${components.length ? `<button class="btn outline sm" onclick="printProcessJO('${job.id}','${s.stage_code}')">Process JO (${componentsForStage(components, s.stage_code, job).length})</button>` : ''}</div>`; }).join('')}</div>
+        ${components.length ? '<div id="pcBox">' + renderPieceMatrix(job, stages, components, done) + '</div>' : ''}`;
   }
 
   else if (t === 'production') {
