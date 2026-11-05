@@ -263,7 +263,8 @@ function renderJoReviewCard(job, reviews) {
   }[ms.state] || '';
   const matLine = ms.state === 'no_mrf'
     ? 'No material request came with this Job Order — staff confirm availability themselves.'
-    : ms.received + ' of ' + ms.requested + ' received · ' + ms.lines_complete + ' of ' + ms.lines + ' lines complete (from the MRF).';
+    : (ms.lines ? ms.received + ' of ' + ms.requested + ' received · ' + ms.lines_complete + ' of ' + ms.lines + ' lines complete (from the MRF).' : 'No material request on this job.')
+      + (ms.client_lines ? ' Client-supplied: ' + ms.client_complete + ' of ' + ms.client_lines + ' received OK and passed QA.' : '');
   const incomplete = job.jo_proceed_incomplete && ms.state !== 'complete';
   const state = {
     received: '<span class="badge amber">Received — waiting for staff check</span>',

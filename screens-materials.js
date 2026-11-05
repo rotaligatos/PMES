@@ -54,12 +54,14 @@ async function drawMaterials() {
   const needs = (j) => toReceive(j) > 0 || toInspect(j) > 0 || qaOpen(j) > 0 || (j.board_requests_open || 0) > 0 || clientOpen(j) > 0 || (j.concerns || []).length > 0;
   const tot = { recv: jobs.reduce((n, j) => n + toReceive(j), 0), insp: jobs.reduce((n, j) => n + toInspect(j), 0), qa: jobs.reduce((n, j) => n + qaOpen(j), 0),
     req: jobs.reduce((n, j) => n + (j.board_requests_open || 0), 0),
+    client: jobs.reduce((n, j) => n + clientOpen(j), 0),
     wait: jobs.reduce((n, j) => n + (j.mrs || []).filter((m) => m.status === 'authorized').length, 0) };
   const shown = jobs.filter((j) => !onlyAction || needs(j));
   const matLbl = { complete: ['green', 'Materials complete'], partial: ['amber', 'Materials partial'], none: ['red', 'Materials not received'], no_mrf: ['gray', 'No MRF'] };
   box.innerHTML = `
     <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
       <div class="stat-box" style="${tot.recv ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.recv}</div><div class="lbl">MRFs to receive</div><div class="small">Warehouse processed — confirm what arrived</div></div>
+      <div class="stat-box" style="${tot.client ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.client}</div><div class="lbl">Client items to check</div><div class="small">What the client said they will bring — must be checked before materials are complete</div></div>
       <div class="stat-box"><div class="num">${tot.wait}</div><div class="lbl">Waiting for the warehouse</div><div class="small">Authorized, not yet processed</div></div>
       <div class="stat-box" style="${tot.qa ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.qa}</div><div class="lbl">Lines for QA to inspect</div><div class="small">Received — quality not checked yet (QA)</div></div>
       <div class="stat-box" style="${tot.insp ? 'border:2px solid var(--amber,#d97706);' : ''}"><div class="num">${tot.insp}</div><div class="lbl">Boards to inspect</div><div class="small">Planned boards not yet inspected (QA)</div></div>
@@ -76,7 +78,7 @@ async function drawMaterials() {
         </div>
         ${(j.concerns || []).length ? '<div class="callout blocked" style="margin-top:8px;"><strong>Open concern:</strong> ' + j.concerns.map((c) => escapeHtml(c.finding)).join('; ') + '</div>' : ''}
         ${(j.mrs || []).length ? renderMRBlocks(j.mrs) : '<p class="small" style="margin-top:8px;">No MRF on this job.</p>'}
-        ${(j.client_materials || []).length ? renderClientMatBlock(j.job_id, j.client_materials) : ''}
+        ${renderClientMatBlock(j.job_id, j.client_materials || [])}
       </div>`;
     }).join('') : `<div class="empty"><div class="ic">✅</div><p>${onlyAction ? 'Nothing waiting on materials.' : 'No open jobs.'}</p></div>`}`;
 }

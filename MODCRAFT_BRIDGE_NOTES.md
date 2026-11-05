@@ -468,3 +468,6 @@ All rules tested by impersonation in rolled-back transactions.
   JO check/approval, cutting plan, extra boards) · 4 Production (processes, output, rejects, labels, pieces) · 5 QA & release
   (final QA count, packing/hand-off). Old tab names still open the right tab.
 - Materials page: separate counts for Receiving and for QA (lines + boards); QA users land there.
+
+## 2026-11-05 — Client-supplied items count toward "materials complete"
+`pmes_job_material_state` read the MRF only, so a job showed Materials complete with client items unchecked, and `pmes_jo_approve` could drop a proceed-with-incomplete job to one supervisor approval. Complete now means every MRF line AND every client item received OK and passed by QA (new keys `client_lines`, `client_complete`, `client_to_check`, `client_problem`, `client_to_inspect`). A job with client items and no MRF is no longer `no_mrf`. `pmes_jo_approve` refuses if materials stopped being complete after the staff check. The seed keeps rows with only a size or thickness. Materials page always shows the client block (so an unlisted item can be added) and has a "Client items to check" tile. SQL: `supabase_pmes_client_materials_gate.sql` in the Modcraft repo.
