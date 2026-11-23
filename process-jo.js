@@ -93,8 +93,7 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
   let c = '';
   items.forEach((it) => {
     const cx = it.q.x + it.q.w / 2;
-    c += `<circle cx="${cx}" cy="${it.cy}" r="${Math.max(sw * 1.6, fs * 0.14)}" fill="#c0271d"></circle>`
-      + `<polyline points="${cx},${it.cy} ${boardW + fs * 0.4},${it.ly} ${lx - fs * 0.2},${it.ly}" fill="none" stroke="#c0271d" stroke-width="${sw}"></polyline>`
+    c += `<polyline points="${cx},${it.cy} ${boardW + fs * 0.4},${it.ly} ${lx - fs * 0.2},${it.ly}" fill="none" stroke="#c0271d" stroke-width="${sw}"></polyline>`
       + `<text x="${lx}" y="${it.ly + fs * 0.33}" font-size="${fs}" fill="#222">${_pjoE(it.txt)}</text>`;
   });
   const vbW = boardW + fs * 1.4 + fs * 0.62 * longest;
