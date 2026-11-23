@@ -69,20 +69,57 @@ function _pjoBoardSvg(pieces, boardW, boardH, maxPx, refsOn, defects) {
   const pw = Math.round(boardW * scale), ph = Math.round(boardH * scale);
   const fs = Math.round(10 / scale), sw = Math.max(1, Math.round(1.4 / scale));
   let r = '';
+  const small = [];
   pieces.forEach((pc, i) => {
     const on = !refsOn || refsOn.has(pc.ref);
     const hue = ((pc.ref != null ? pc.ref : i) * 47) % 360;
     // remakes added in a plan revision are highlighted for traceability (Rommel 2026-10-19)
     r += pc.remake ? `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="#ffd6a8" stroke="#d9480f" stroke-width="${sw * 2.5}"></rect>`
       : `<rect x="${pc.x}" y="${pc.y}" width="${pc.w}" height="${pc.h}" fill="${on ? `hsl(${hue},55%,80%)` : '#eeeeee'}" stroke="#5a4a3a" stroke-width="${sw}"></rect>`;
-    const label = (pc.remake ? 'REMAKE ' + (pc.part || '') + ' ' : (pc.ref != null ? 'P' + (pc.ref + 1) + ' ' : '')) + Math.round(pc.w) + '×' + Math.round(pc.h) + (pc.rotated ? ' ⟳' : '');
-    if (pc.w > fs * 0.62 * label.length && pc.h > fs * 1.5)
-      r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle" fill="#222">${_pjoE(label)}</text>`;
-    else if (pc.ref != null && pc.w > fs * 2.2 && pc.h > fs * 1.5)
-      r += `<text x="${pc.x + pc.w / 2}" y="${pc.y + pc.h / 2 + fs * 0.3}" font-size="${fs}" text-anchor="middle" fill="#222">P${pc.ref + 1}</text>`;
+    const pn = pc.remake ? 'REMAKE ' + (pc.part || '') : (pc.ref != null ? 'P' + (pc.ref + 1) : '');
+    const size = Math.round(pc.w) + '×' + Math.round(pc.h) + (pc.rotated ? ' ⟳' : '');
+    const lab = _pjoPieceLabel(pc, fs, pn, size);
+    if (lab) r += lab; else small.push({ q: pc, txt: pn ? pn + ' · ' + size : size });
   });
   (defects || []).forEach((d) => { r += `<rect x="${d.x}" y="${d.y}" width="${d.w}" height="${d.h}" fill="rgba(220,40,40,.35)" stroke="#c0271d" stroke-width="${sw * 1.5}"></rect>`; });
-  return `<svg width="${pw}" height="${ph}" viewBox="0 0 ${boardW} ${boardH}" style="background:#fff;border:2px solid #8a7a63">${r}</svg>`;
+  if (!small.length) return `<svg width="${pw}" height="${ph}" viewBox="0 0 ${boardW} ${boardH}" style="background:#fff;border:2px solid #8a7a63">${r}</svg>`;
+  // Leader lines (same as Modcraft's _prodCallouts): labels stacked down a right margin, a line
+  // from each too-small piece to its label.
+  const items = small.map((s) => ({ ...s, cy: s.q.y + s.q.h / 2 })).sort((a, b) => a.cy - b.cy);
+  const gap = fs * 1.35; let y = -Infinity, longest = 0;
+  items.forEach((it) => { it.ly = Math.max(it.cy, y + gap); y = it.ly; longest = Math.max(longest, it.txt.length); });
+  const over = y - (boardH - fs * 0.4); if (over > 0) items.forEach((it) => { it.ly -= over; });
+  const lx = boardW + fs * 1.2;
+  let c = '';
+  items.forEach((it) => {
+    const cx = it.q.x + it.q.w / 2;
+    c += `<circle cx="${cx}" cy="${it.cy}" r="${Math.max(sw * 1.6, fs * 0.14)}" fill="#c0271d"></circle>`
+      + `<polyline points="${cx},${it.cy} ${boardW + fs * 0.4},${it.ly} ${lx - fs * 0.2},${it.ly}" fill="none" stroke="#c0271d" stroke-width="${sw}"></polyline>`
+      + `<text x="${lx}" y="${it.ly + fs * 0.33}" font-size="${fs}" fill="#222">${_pjoE(it.txt)}</text>`;
+  });
+  const vbW = boardW + fs * 1.4 + fs * 0.62 * longest;
+  return `<svg width="${Math.round(vbW * scale)}" height="${ph}" viewBox="0 0 ${vbW} ${boardH}" style="background:#fff">`
+    + `<rect x="0" y="0" width="${boardW}" height="${boardH}" fill="#fff"></rect>${r}`
+    + `<rect x="0" y="0" width="${boardW}" height="${boardH}" fill="none" stroke="#8a7a63" stroke-width="${Math.round(2 / scale)}"></rect>${c}</svg>`;
+}
+// Same rules as Modcraft's _prodPieceLabel: across, then turned 90° along the piece, at normal
+// size then smaller; part number kept, size dropped first. '' = nothing fits (listed under the board).
+function _pjoPieceLabel(pc, baseFs, pn, size) {
+  const full = pn ? pn + ' · ' + size : size;
+  const cx = pc.x + pc.w / 2, cy = pc.y + pc.h / 2;
+  for (const sc of [1, 0.8, 0.65]) {
+    const f = Math.round(baseFs * sc);
+    for (const vert of [false, true]) {
+      const len = vert ? pc.h : pc.w, thick = vert ? pc.w : pc.h;
+      const fits = (s) => len > f * 0.62 * s.length;
+      const rot = vert ? ` transform="rotate(-90 ${cx} ${cy})"` : '';
+      const T = (dy, s) => `<text x="${cx}" y="${cy + dy}" font-size="${f}" text-anchor="middle" fill="#222"${rot}>${_pjoE(s)}</text>`;
+      if (thick > f * 1.4 && fits(full)) return T(f * 0.33, full);
+      if (pn && thick > f * 2.7 && fits(size) && fits(pn)) return T(-f * 0.35, pn) + T(f * 0.95, size);
+      if (pn && thick > f * 1.2 && fits(pn)) return T(f * 0.33, pn);
+    }
+  }
+  return '';
 }
 // Cutting instructions — kept in step with Modcraft's _prodCutSequence (2026-10-17). A Modcraft
 // Job Order carries a cut plan per board (plans): strips along the length ('L') or across the width
