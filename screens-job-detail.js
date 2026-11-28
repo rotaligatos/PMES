@@ -151,7 +151,9 @@ function _drawJobTabInner() {
   else if (t === 'qa_in') {
     body.innerHTML = '<div id="jdQa"><div class="card"><p class="small">Loading…</p></div></div><div id="boardsBlock"></div>';
     InboundData.client(job.id).catch(() => []).then((cm) => { const el = document.getElementById('jdQa'); if (el) el.innerHTML = renderQaInspect(job, State.jobMRs || [], cm); });
-    if (job.mother_jo && (job.mother_jo.boards || []).length) renderBoardsCards(job, document.getElementById('boardsBlock'), 'inspect').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const e = a && document.getElementById(a); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    if (_bdHasInspect(job)) renderBoardsCards(job, document.getElementById('boardsBlock'), 'inspect').then(() => { const a = State.jobScrollTo; State.jobScrollTo = null; const e = a && document.getElementById(a); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    // No board list on this job: say why instead of leaving the space blank (2026-11-28).
+    else document.getElementById('boardsBlock').innerHTML = '<div class="card"><h2>Boards received — inspection</h2><p class="small"><strong>No boards to map yet.</strong> The board-by-board defect map appears here once boards (plywood, MDF, board sheets) are received on this job.</p></div>';
   }
 
   else if (t === 'review') {

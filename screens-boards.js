@@ -40,14 +40,50 @@ function _bdCanRun() { return (State.me && State.me.role === 'staff') || pmesCan
 // to office staff; saving a plan and requesting extra stay with office staff and supervisors.
 function _bdCanAnalyse() { return _bdCanRun() || (State.me && State.me.role === 'materials'); }
 function _bdGroups(job) { return ((job.mother_jo && job.mother_jo.boards) || []).map((g) => ({ g, key: PmesOptimizer.groupKey(g), label: PmesOptimizer.groupLabel(g) })); }
+// 2026-11-28: jobs without a Modcraft cutting layout still receive boards through the Material request.
+// QA marks defects on those too: one group per received board line (key 'mr:<line id>'), board size from
+// the item name (4x8 = 1220x2440mm, or a size in mm), count = received rounded up. Inspection only;
+// the cutting optimizer still works from the Job Order layout (_bdGroups).
+const _BD_SHEET_UNITS = ['pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'sht', 'board', 'boards'];
+const _BD_BOARD_WORDS = /(plywood|mdf|versaboard|particle\s*board|\bpb\b|melamine|hpl|laminate|board|\d\s*x\s*\d+\b(?!\s*mm))/i;
+const _BD_NOT_BOARD = /(screw|edge\s*band|edgeband|hinge|bolt|nail|glue|adhesive|bracket|plinth|handle|runner|slide|peg|minifix)/i;
+function _bdLineSize(item) {
+  const t = String(item || '');
+  const mm = t.match(/(\d{3,4})\s*[x×]\s*(\d{3,4})\s*(mm)?/i);
+  if (mm) { const a = +mm[1], b = +mm[2]; return [Math.min(a, b), Math.max(a, b)]; }
+  const ft = t.match(/\b([3-5])\s*[x×]\s*(6|7|8|9|10|12)\b(?!\s*mm)/i);
+  const f2mm = { 3: 915, 4: 1220, 5: 1525, 6: 1830, 7: 2135, 8: 2440, 9: 2745, 10: 3050, 12: 3660 };
+  if (ft) return [f2mm[ft[1]], f2mm[ft[2]]];
+  return [1220, 2440];   // standard sheet when the name gives no size
+}
+function _bdIsBoardLine(l) {
+  const unit = String(l.unit || '').trim().toLowerCase();
+  if (!_BD_SHEET_UNITS.includes(unit)) return false;
+  if (_BD_NOT_BOARD.test(l.item || '')) return false;
+  if (l.category && !/material/i.test(l.category)) return false;   // when the category is sent, trust it
+  return _BD_BOARD_WORDS.test(l.item || '');
+}
+function _bdMatGroups() {
+  const out = [];
+  (State.jobMRs || []).forEach((m) => (m.lines || []).forEach((l) => {
+    const rec = +l.received || 0;
+    if (rec <= 0 || !_bdIsBoardLine(l)) return;
+    const [w, h] = _bdLineSize(l.item);
+    out.push({ g: { boardW: w, boardH: h, boardsNeeded: Math.ceil(rec - 1e-9) }, key: 'mr:' + l.id, label: l.item + (m.mr_no ? ' (' + m.mr_no + ')' : ''), fromMr: true });
+  }));
+  return out;
+}
+function _bdInspectGroups(job) { const g = _bdGroups(job); return g.length ? g : _bdMatGroups(); }
+function _bdHasInspect(job) { return _bdInspectGroups(job).length > 0; }
 
 async function renderBoardsCards(job, el, part) {
-  if (!job.mother_jo || !(job.mother_jo.boards || []).length) { el.innerHTML = ''; return; }
+  const hasLayout = !!(job.mother_jo && (job.mother_jo.boards || []).length);
+  if (!hasLayout && (part !== 'inspect' || !_bdMatGroups().length)) { el.innerHTML = ''; return; }
   let boards = [], plans = [], reqs = [];
   try { [boards, plans, reqs] = await Promise.all([BoardsData.boards(job.id), BoardsData.plans(job.id), BoardsData.requests(job.id)]); }
   catch (e) { el.innerHTML = `<div class="card"><p class="small">Could not load boards: ${escapeHtml(e.message)}</p></div>`; return; }
   State.jobBoards = boards;
-  const groups = _bdGroups(job);
+  const groups = _bdInspectGroups(job);
   const stPill = (s) => ({ ok: '<span class="badge green">OK</span>', defect: '<span class="badge amber">Defects</span>', rejected: '<span class="badge red">Rejected</span>' }[s] || '<span class="badge gray">Not inspected</span>');
   // --- inspection
   const insp = groups.map(({ g, key, label }) => {
@@ -199,7 +235,7 @@ async function boardReqAct(id, act) {
 function openBoardInspect(jobId, keyEnc, boardNo) {
   const key = decodeURIComponent(keyEnc);
   Data.getJob(jobId).then((job) => {
-    const grp = _bdGroups(job).find((x) => x.key === key); if (!grp) return;
+    const grp = _bdInspectGroups(job).find((x) => x.key === key); if (!grp) return;
     const existing = (State.jobBoards || []).find((b) => b.group_key === key && b.board_no === boardNo);
     window._insp = { jobId, key, label: grp.label, boardNo, w: +(existing ? existing.board_w : grp.g.boardW), h: +(existing ? existing.board_h : grp.g.boardH),
       status: existing ? existing.status : 'ok', notes: existing ? existing.notes || '' : '',
